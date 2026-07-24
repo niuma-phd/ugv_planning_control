@@ -1,0 +1,6 @@
+# Shared integration and safety boundaries
+/AGENTS.md @niuma-phd
+/docs/ @niuma-phd
+/.github/ @niuma-phd
+/src/ugv_mvp_bringup/ @niuma-phd
+

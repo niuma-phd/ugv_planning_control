@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+from pathlib import Path
 import sys
 import time
 
@@ -18,9 +19,10 @@ from tf2_msgs.msg import TFMessage
 
 
 class FixtureMonitor(Node):
-    def __init__(self, subject: str) -> None:
-        super().__init__(f"verify_{subject}_fixture_runtime")
-        self.subject = subject
+    def __init__(self, mode: str) -> None:
+        super().__init__(f"verify_{mode}_fixture_runtime")
+        self.mode = mode
+        self.subject = "subject2" if mode.startswith("subject2") else "subject1"
         self.state: dict[str, object] = {
             "static_tf": False,
             "valid": False,
@@ -29,6 +31,8 @@ class FixtureMonitor(Node):
             "active": False,
             "linear_x": 0.0,
             "angular_z": 0.0,
+            "fault_invalid": False,
+            "zero_after_fault": False,
         }
         reliable = QoSProfile(
             depth=10,
@@ -44,7 +48,7 @@ class FixtureMonitor(Node):
             TFMessage, "/fixture/tf_static", self._on_static_tf, transient
         )
 
-        if subject == "subject2":
+        if self.subject == "subject2":
             self.create_subscription(
                 Bool,
                 "/fixture/localization/odom_valid",
@@ -99,7 +103,10 @@ class FixtureMonitor(Node):
                 )
 
     def _on_valid(self, message: Bool) -> None:
-        self.state["valid"] = bool(self.state["valid"]) or message.data
+        if message.data:
+            self.state["valid"] = True
+        elif bool(self.state["valid"]):
+            self.state["fault_invalid"] = True
 
     def _on_obstacles(self, message: PoseArray) -> None:
         self.state["obstacles"] = max(
@@ -122,14 +129,30 @@ class FixtureMonitor(Node):
         ):
             self.state["linear_x"] = linear_x
             self.state["angular_z"] = angular_z
+        if (
+            bool(self.state["fault_invalid"])
+            and math.isfinite(linear_x)
+            and math.isfinite(angular_z)
+            and abs(linear_x) < 1.0e-12
+            and abs(angular_z) < 1.0e-12
+        ):
+            self.state["zero_after_fault"] = True
 
     def complete(self) -> bool:
-        if self.subject == "subject2":
+        if self.mode == "subject2":
             return (
                 bool(self.state["static_tf"])
                 and bool(self.state["valid"])
                 and float(self.state["linear_x"]) > 0.0
                 and float(self.state["angular_z"]) > 0.0
+            )
+        if self.mode == "subject2_fault":
+            return (
+                bool(self.state["static_tf"])
+                and bool(self.state["valid"])
+                and float(self.state["linear_x"]) > 0.0
+                and bool(self.state["fault_invalid"])
+                and bool(self.state["zero_after_fault"])
             )
         return (
             bool(self.state["static_tf"])
@@ -153,20 +176,53 @@ class FixtureMonitor(Node):
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("subject", choices=("subject1", "subject2"))
+    parser.add_argument(
+        "subject", choices=("subject1", "subject2", "subject2_fault")
+    )
     parser.add_argument("--timeout", type=float, default=12.0)
+    parser.add_argument(
+        "--snapshot",
+        type=Path,
+        default=Path("/home/sunrise/.ros/ugv_mvp/last_good_subject2_odom.json"),
+    )
     args = parser.parse_args()
     if not math.isfinite(args.timeout) or args.timeout <= 0.0:
         parser.error("--timeout must be a positive finite value")
 
     rclpy.init()
     monitor = FixtureMonitor(args.subject)
+    initial_snapshot_mtime = (
+        args.snapshot.stat().st_mtime_ns if args.snapshot.exists() else None
+    )
+
+    def snapshot_is_fresh_and_valid() -> bool:
+        if args.subject != "subject2_fault":
+            return True
+        if not args.snapshot.exists():
+            return False
+        if (
+            initial_snapshot_mtime is not None
+            and args.snapshot.stat().st_mtime_ns <= initial_snapshot_mtime
+        ):
+            return False
+        try:
+            contents = json.loads(args.snapshot.read_text())
+        except (json.JSONDecodeError, OSError):
+            return False
+        return (
+            contents.get("fault") == "stale"
+            and contents.get("frame_id") == "odom"
+            and contents.get("child_frame_id") == "base_link"
+        )
+
     deadline = time.monotonic() + args.timeout
     try:
-        while time.monotonic() < deadline and not monitor.complete():
+        while time.monotonic() < deadline and not (
+            monitor.complete() and snapshot_is_fresh_and_valid()
+        ):
             rclpy.spin_once(monitor, timeout_sec=0.1)
         monitor.assert_isolated()
-        if not monitor.complete():
+        if not monitor.complete() or not snapshot_is_fresh_and_valid():
             print(
                 "FIXTURE_RUNTIME_FAILED " + json.dumps(monitor.state, sort_keys=True),
                 file=sys.stderr,
@@ -175,7 +231,12 @@ def main() -> int:
         print(
             "FIXTURE_RUNTIME_OK "
             + json.dumps(
-                {"subject": args.subject, **monitor.state}, sort_keys=True
+                {
+                    "subject": args.subject,
+                    "snapshot": snapshot_is_fresh_and_valid(),
+                    **monitor.state,
+                },
+                sort_keys=True,
             )
         )
         return 0

@@ -1,8 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import GroupAction, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, SetRemap
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -25,6 +26,10 @@ def _isolated_remaps():
 
 
 def generate_launch_description() -> LaunchDescription:
+    path_shape = LaunchConfiguration("path_shape")
+    stop_after_s = LaunchConfiguration("raw_odom_stop_after_s")
+    jump_after_s = LaunchConfiguration("raw_odom_inject_jump_after_s")
+    jump_distance_m = LaunchConfiguration("raw_odom_jump_distance_m")
     bringup_share = FindPackageShare("ugv_mvp_bringup")
     production = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -43,6 +48,12 @@ def generate_launch_description() -> LaunchDescription:
     )
     return LaunchDescription(
         [
+            DeclareLaunchArgument("path_shape", default_value="left"),
+            DeclareLaunchArgument("raw_odom_stop_after_s", default_value="-1.0"),
+            DeclareLaunchArgument(
+                "raw_odom_inject_jump_after_s", default_value="-1.0"
+            ),
+            DeclareLaunchArgument("raw_odom_jump_distance_m", default_value="5.0"),
             GroupAction(
                 [
                     *_isolated_remaps(),
@@ -50,13 +61,27 @@ def generate_launch_description() -> LaunchDescription:
                     Node(
                         package="ugv_mvp_tools",
                         executable="path_fixture_node",
-                        parameters=[{"production_mode": False, "shape": "left"}],
+                        parameters=[
+                            {"production_mode": False, "shape": path_shape}
+                        ],
                     ),
                     Node(
                         package="ugv_mvp_tools",
                         executable="raw_odom_fixture_node",
                         parameters=[
-                            {"production_mode": False, "linear_speed_mps": 0.0}
+                            {
+                                "production_mode": False,
+                                "linear_speed_mps": 0.0,
+                                "stop_after_s": ParameterValue(
+                                    stop_after_s, value_type=float
+                                ),
+                                "inject_jump_after_s": ParameterValue(
+                                    jump_after_s, value_type=float
+                                ),
+                                "jump_distance_m": ParameterValue(
+                                    jump_distance_m, value_type=float
+                                ),
+                            }
                         ],
                     ),
                 ]

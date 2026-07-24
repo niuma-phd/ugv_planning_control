@@ -33,10 +33,21 @@ ROS_DOMAIN_ID=71 python3 scripts/verify_fixture_runtime.py subject2
 ```
 
 The fixture never publishes canonical `/control/cmd_vel`. For focused
-controller tests, repeat `shape:=right` and verify `angular.z` changes sign. Set
-`stop_after_s:=2.0` or `inject_jump_after_s:=2.0`; command must become zero and
-the persisted last-good file must contain the sample immediately before the
-fault.
+controller tests, repeat `path_shape:=right` and verify `angular.z` changes
+sign. Set `raw_odom_stop_after_s:=2.0` or
+`raw_odom_inject_jump_after_s:=2.0`; command must become zero and the persisted
+last-good file must contain the sample immediately before the fault.
+
+The integrated stale-odom check is:
+
+```bash
+# Terminal 1
+ROS_DOMAIN_ID=73 ros2 launch ugv_mvp_bringup subject2_fixture.launch.py \
+  raw_odom_stop_after_s:=3.0
+
+# Terminal 2, start before the three-second stop
+ROS_DOMAIN_ID=73 python3 scripts/verify_fixture_runtime.py subject2_fault
+```
 
 ### Subject 1
 

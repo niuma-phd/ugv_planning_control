@@ -22,19 +22,17 @@ handling.
 
 ### Subject 2
 
-Run the Subject 2 bringup with approved test-only zero lidar extrinsics, then:
+Launch the isolated Subject 2 fixture graph:
 
 ```bash
-ros2 run ugv_mvp_tools path_fixture_node --ros-args \
-  -p production_mode:=false -p shape:=left
-
-ros2 run ugv_mvp_tools raw_odom_fixture_node --ros-args \
-  -p production_mode:=false -p linear_speed_mps:=0.05
-
-ros2 topic echo /control/cmd_vel
+ROS_DOMAIN_ID=71 ros2 launch ugv_mvp_bringup subject2_fixture.launch.py
+ROS_DOMAIN_ID=71 ros2 topic echo /fixture/control/cmd_vel
+ROS_DOMAIN_ID=71 ros2 run tf2_ros tf2_echo base_link livox_frame \
+  --ros-args -r /tf:=/fixture/tf -r /tf_static:=/fixture/tf_static
 ```
 
-Repeat `shape:=right` and verify `angular.z` changes sign. Set
+The fixture never publishes canonical `/control/cmd_vel`. For focused
+controller tests, repeat `shape:=right` and verify `angular.z` changes sign. Set
 `stop_after_s:=2.0` or `inject_jump_after_s:=2.0`; command must become zero and
 the persisted last-good file must contain the sample immediately before the
 fault.
@@ -42,15 +40,15 @@ fault.
 ### Subject 1
 
 ```bash
-ros2 run ugv_mvp_tools pointcloud_fixture_node --ros-args \
-  -p production_mode:=false -p scenario:=front
-
-ros2 topic echo /subject1/obstacles
-ros2 topic echo /subject1/avoidance_active
-ros2 topic echo /subject1/avoid_cmd_vel
+ROS_DOMAIN_ID=72 ros2 launch ugv_mvp_bringup subject1_fixture.launch.py
+ROS_DOMAIN_ID=72 ros2 topic echo /fixture/subject1/obstacles
+ROS_DOMAIN_ID=72 ros2 topic echo /fixture/subject1/avoidance_active
+ROS_DOMAIN_ID=72 ros2 topic echo /fixture/subject1/avoid_cmd_vel
 ```
 
-Repeat `none`, `left`, `right` and `blocked`.
+The cloud fixture uses `livox_frame`, so this path also exercises the static TF
+lookup. For focused detector/planner tests, repeat `none`, `left`, `right` and
+`blocked`.
 
 ## 3. Real sensors, actuators disconnected
 

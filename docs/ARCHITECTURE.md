@@ -62,7 +62,7 @@ remains stopped and retires.
 ## Subject 1
 
 ```text
-Horizon PointCloud2 + base_link→livox_horizon
+Horizon PointCloud2 + base_link→livox_frame
   → body-frame ROI/height/self filter + 2-D occupied cells
   → /subject1/obstacles
 
@@ -95,8 +95,10 @@ map → odom → base_link → livox_frame
 - `odom→base_link`: `lio_odom_adapter`.
 - `base_link→livox_frame`: measured lidar static transform supplied to
   bringup; invalid by default until explicitly approved. The pinned driver
-  uses `livox_frame` for both Horizon and Avia PointCloud2/IMU headers, and the
-  two lidars share the same mounting pose.
+  uses `livox_frame` for both Horizon and Avia PointCloud2/IMU headers. Although
+  the two lidars occupy the same nominal mounting location, Subject 1 and
+  Subject 2 measurements are reviewed independently before either profile is
+  enabled.
 - raw LIO `world→livox_frame` remains a private/raw relation and is not used as
   the canonical tree.
 

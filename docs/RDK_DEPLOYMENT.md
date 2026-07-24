@@ -50,6 +50,21 @@ The Livox driver and LIO are launched from their existing workspaces in
 separate terminals. This repository consumes their topics; it does not overlay
 or replace their packages.
 
+Production bringup remains disabled until approved extrinsics are supplied:
+
+```bash
+ros2 launch ugv_mvp_bringup subject2.launch.py \
+  publish_lidar_static_tf:=true \
+  lidar_extrinsics_provenance:=<MEASUREMENT_RECORD_ID> \
+  base_to_lidar_x:=<M> base_to_lidar_y:=<M> base_to_lidar_z:=<M> \
+  base_to_lidar_roll:=<RAD> base_to_lidar_pitch:=<RAD> \
+  base_to_lidar_yaw:=<RAD>
+```
+
+Use `subject1.launch.py` with the independently reviewed Horizon measurement.
+Merely setting the boolean without all six finite values and provenance aborts
+the launch.
+
 ## Production restrictions
 
 - Development fixture nodes must remain stopped.
@@ -57,4 +72,3 @@ or replace their packages.
 - Vehicle limits must be measured, reviewed and loaded.
 - Start with actuators disconnected.
 - The current MVP does not automatically restart LIO or consume raw GNSS.
-

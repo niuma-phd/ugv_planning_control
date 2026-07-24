@@ -14,7 +14,8 @@ Turn Horizon `PointCloud2` into occupied 2-D cell centers in `base_link` and a c
 ## Real Horizon bag tuning
 1. Record stationary and slow bags with `/livox/lidar`, `/tf`, `/tf_static`, measured obstacles, clear-road segments, driver config, and bag SHA-256.
 2. Confirm PointCloud2 mode; measure actual rate, frame, fields, stamps, and dropout. Never infer these from synthetic clouds.
-3. Measure and approve full 6-DoF `base_link -> livox_horizon`. **TODO: no placeholder TF for vehicle motion.**
+3. Measure and approve full 6-DoF `base_link -> livox_frame` for the Horizon
+   deployment. **TODO: no placeholder TF for vehicle motion.**
 4. Measure vehicle envelope; tune `self_min/max_x/y` with margin without deleting nearby obstacles.
 5. Plot ground/obstacle height histograms and tune `min_z/max_z` on slopes, vegetation, and pitch. **TODO: height band needs real evidence.**
 6. Tune ROI/cell size for the planner; `min_points` against noise and smallest required obstacle; corridor against footprint/stopping distance.

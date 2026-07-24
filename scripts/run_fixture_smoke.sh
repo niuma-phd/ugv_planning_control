@@ -36,6 +36,7 @@ fi
 LAUNCH_FILE=""
 VERIFY_MODE=""
 EXPECTED_FAULT="stale"
+VERIFY_TIMEOUT="15.0"
 LAUNCH_ARGUMENTS=()
 
 case "${MODE}" in
@@ -46,13 +47,13 @@ case "${MODE}" in
   subject2_fault)
     LAUNCH_FILE="subject2_fixture.launch.py"
     VERIFY_MODE="subject2_fault"
-    LAUNCH_ARGUMENTS+=("raw_odom_stop_after_s:=3.0")
+    LAUNCH_ARGUMENTS+=("raw_odom_stop_after_s:=6.0")
     ;;
   subject2_jump)
     LAUNCH_FILE="subject2_fixture.launch.py"
     VERIFY_MODE="subject2_fault"
     EXPECTED_FAULT="translation_jump"
-    LAUNCH_ARGUMENTS+=("raw_odom_inject_jump_after_s:=3.0")
+    LAUNCH_ARGUMENTS+=("raw_odom_inject_jump_after_s:=6.0")
     ;;
   subject1)
     LAUNCH_FILE="subject1_fixture.launch.py"
@@ -72,14 +73,14 @@ case "${MODE}" in
   subject1_fault)
     LAUNCH_FILE="subject1_fixture.launch.py"
     VERIFY_MODE="subject1_fault"
-    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=right" "pointcloud_stop_after_s:=3.0")
+    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=right" "pointcloud_stop_after_s:=6.0")
     ;;
   subject1_replay)
     LAUNCH_FILE="subject1_fixture.launch.py"
     VERIFY_MODE="subject1_replay"
     LAUNCH_ARGUMENTS+=(
       "pointcloud_scenario:=right"
-      "pointcloud_freeze_stamp_after_s:=3.0"
+      "pointcloud_freeze_stamp_after_s:=6.0"
     )
     ;;
   subject1_invalid)
@@ -122,7 +123,8 @@ trap cleanup EXIT INT TERM
 
 sleep 0.5
 python3 scripts/verify_fixture_runtime.py "${VERIFY_MODE}" \
-  --expected-fault "${EXPECTED_FAULT}" --snapshot "${SNAPSHOT}"
+  --expected-fault "${EXPECTED_FAULT}" --snapshot "${SNAPSHOT}" \
+  --timeout "${VERIFY_TIMEOUT}"
 
 cleanup
 trap - EXIT INT TERM

@@ -9,7 +9,12 @@
 - 车辆是两侧独立驱动的差速履带底盘；
 - 科目二临时发布 identity `map→odom`，仅用于坐标已对齐的封闭场路径；
 - 科目二最终输出是 `/cmd_vel` `geometry_msgs/msg/Twist`，单位为 m/s 与 rad/s；
-- 科目一接口保持不变；上游来源/传输/部署仍未知，禁止假定。
+- 科目一已实现机体系最小闭环：其他团队提供
+  `/subject1/nominal_cmd_vel` 与 `/subject1/next_waypoint_base`，本仓库在同一
+  timer 内原子选择巡航或避障并唯一发布 `/cmd_vel`；
+- 科目一的 `map_odom_manager` 初始无有效变换；合作方全局位姿语义确认前
+  不发布 `map→odom`，局部闭环只依赖 `base_link` 输入；
+- 上游来源/传输/部署仍未知，禁止假定。
 
 跨包改动必须先核对 [`ARCHITECTURE.md`](ARCHITECTURE.md) 和
 [`INTERFACES.md`](INTERFACES.md)，不得让并行分支重新引入已废弃的传感器、自动起点对齐或旧最终命令 topic/type 作为当前科目二合同。
@@ -158,12 +163,16 @@ python3 scripts/verify_repository.py
 - 使用人工复核的封闭场局部路径，确认其原点/轴向与临时 identity `map→odom` 假设一致；未知上游数据不得用于实车；
 - 依次完成直线、左/右弧线和 odom 断流/时间戳/跳变停车测试。
 
-### P1：科目一真实点云与接管联调
+### P1：科目一真实点云与最终命令联调
 
 - 回填并审批 Horizon 的独立静态外参、车辆 footprint 和安全膨胀；
 - 采集真实 Horizon PointCloud2 bag，验证机体轴向、地面高度带和自车裁剪；
 - 用已知前/左/右软障碍调节点云栅格与曲率候选参数；
-- 由其他团队确认局部避障取得和释放控制权的接口；
+- 由其他团队持续发布平面巡航命令 `/subject1/nominal_cmd_vel` 和已经转换到
+  `base_link` 的 `/subject1/next_waypoint_base`；
+- 验证无障碍透传、障碍安全轨迹接管、障碍解除恢复透传，以及所有
+  blocked/stale/invalid 分支最终 `/cmd_vel` 为零；
+- 确认科目一运行图中只有本仓库的 local avoidance selector 发布 `/cmd_vel`；
 - 先断开执行器验证命令方向，再进行批准速度下的封闭场地测试。
 
 ### P2：接口确认后的集成
@@ -198,7 +207,8 @@ python3 scripts/verify_repository.py
 - 不修改 livox_ros2_driver 或 LIO_Livox_ROS2
 - 不修改其他会话拥有的 package
 - 不假定未知上游、GPS、LIO 重启或车辆参数
-- 不改变 Subject 1 既有 topic，也不把 Subject 2 `/cmd_vel` 套到 S1 candidate 接口
+- 不删除 Subject 1 的 active/candidate/trajectory 诊断接口，不引入第二个
+  `/cmd_vel` 发布者，不在全局位姿合同未知时为 Subject 1 猜测 `map→odom`
 - 不用 fixture/bag/unit test 结果宣称实车通过
 
 验收：

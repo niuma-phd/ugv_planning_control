@@ -48,6 +48,26 @@ struct PlanResult
   std::vector<Pose2> trajectory;
 };
 
+struct PlanarCommand
+{
+  double linear_x_mps{0.0};
+  double angular_z_radps{0.0};
+};
+
+struct NominalCommand
+{
+  double linear_x{0.0};
+  double linear_y{0.0};
+  double linear_z{0.0};
+  double angular_x{0.0};
+  double angular_y{0.0};
+  double angular_z{0.0};
+};
+
+PlanarCommand select_final_command(
+  const PlanResult & plan, const NominalCommand & nominal,
+  bool nominal_fresh);
+
 class LocalAvoidance
 {
 public:

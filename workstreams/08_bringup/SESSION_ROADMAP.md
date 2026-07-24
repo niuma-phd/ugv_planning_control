@@ -9,6 +9,7 @@
 - `subject2.launch.py`
 - `subject2_horizon.launch.py`
 - `subject1.launch.py`
+- `subject1_horizon.launch.py`
 
 All default `publish_lidar_static_tf=false`. The LIO adapter therefore refuses
 canonical odom by default. Enabling the transform requires all six
@@ -22,7 +23,7 @@ Both launch files publish `base_link→livox_frame`, matching the pinned driver
 default for PointCloud2 and IMU. Do not rename that child to a sensor model
 unless the driver header configuration changes at the same reviewed revision.
 
-Subject 2 is the P0 profile and has these confirmed MVP decisions:
+Subject 2 is the field P0 profile and has these confirmed MVP decisions:
 
 - two-track differential tracked chassis;
 - Horizon + LIO localization;
@@ -39,6 +40,20 @@ first-use material only. No launch starts an upstream path gateway: the other
 team's actual deployment/data format is unknown, so adding a guessed adapter is
 prohibited.
 
+Subject 1 has a separate minimal closed profile:
+
+- `subject1_horizon.launch.py` starts Horizon PointCloud2, scopes LIO
+  `msg_type=1`, isolates raw TF on `/lio_raw/tf`, and includes the local stack;
+- Horizon perception remains active and transforms clouds to `base_link`;
+- the partner supplies `/subject1/nominal_cmd_vel` and
+  `/subject1/next_waypoint_base`;
+- `local_avoidance_node` atomically selects nominal, safe avoidance, or zero in
+  one timer callback and is the sole `/cmd_vel` publisher in this profile;
+- active/candidate/trajectory topics remain diagnostics;
+- `map_odom_manager` starts with `initial_transform_valid=false` and does not
+  publish `map→odom` before an explicit reviewed update. The local body-frame
+  loop does not depend on that TF.
+
 ## Fixture launches
 
 - `subject2_fixture.launch.py`
@@ -46,15 +61,17 @@ prohibited.
 
 They explicitly activate development fixtures and remap the complete dataflow,
 including `/tf` and command topics, below `/fixture`. They therefore never
-publish the canonical `/cmd_vel` or `/subject1/avoid_cmd_vel` topics.
+publish canonical command or Subject 1 diagnostic topics.
 Keep using a separate `ROS_DOMAIN_ID`; isolation is defense in depth, not a
 reason to connect actuators during a fixture test.
 
 `scripts/run_fixture_smoke.sh` owns exact process-group startup/shutdown and
 calls `verify_fixture_runtime.py`. Modes cover S2 nominal/stale/jump and S1
-avoid/clear/blocked/cutoff/replay/all-NaN behavior. They prove expected command
-sign or zero, valid/detected state, static TF, full canonical-topic isolation,
-fresh last-good snapshot for S2 faults, and no survivor processes.
+avoid/clear/blocked/cutoff/replay/all-NaN/release/nominal-stale/nominal-invalid
+behavior. They prove expected command selection or zero, one fixture final
+publisher with `geometry_msgs/msg/Twist`, valid/detected state, static TF, full
+canonical-topic isolation, fresh last-good snapshot for S2 faults, and no
+survivor processes.
 
 ## Low-cost session tasks and acceptance
 
@@ -114,3 +131,21 @@ Take one item per session and keep changes inside
    Do not add it until the upstream team's executable output and real sample are
    available. Then implement the thinnest separately owned adapter into
    `/subject2/path`.
+
+6. **P1 — run the complete Subject 1 software gate on RDK.**
+
+   ```bash
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_none
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_blocked
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_fault
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_replay
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_invalid
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_release
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_nominal_stale
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject1_nominal_invalid
+   ```
+
+   Acceptance: every mode passes; fixture graph has no canonical topic leak;
+   `/fixture/cmd_vel` has one publisher; Subject 1 publishes no `map→odom`
+   before an explicit update; process cleanup leaves no survivors.

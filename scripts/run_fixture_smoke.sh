@@ -88,8 +88,33 @@ case "${MODE}" in
     VERIFY_MODE="subject1_invalid"
     LAUNCH_ARGUMENTS+=("pointcloud_scenario:=all_nan")
     ;;
+  subject1_release)
+    LAUNCH_FILE="subject1_fixture.launch.py"
+    VERIFY_MODE="subject1_release"
+    LAUNCH_ARGUMENTS+=(
+      "pointcloud_scenario:=right"
+      "pointcloud_scenario_after_s:=6.0"
+      "pointcloud_scenario_after:=none"
+    )
+    ;;
+  subject1_nominal_stale)
+    LAUNCH_FILE="subject1_fixture.launch.py"
+    VERIFY_MODE="subject1_nominal_stale"
+    LAUNCH_ARGUMENTS+=(
+      "pointcloud_scenario:=none"
+      "nominal_cmd_stop_after_s:=6.0"
+    )
+    ;;
+  subject1_nominal_invalid)
+    LAUNCH_FILE="subject1_fixture.launch.py"
+    VERIFY_MODE="subject1_nominal_invalid"
+    LAUNCH_ARGUMENTS+=(
+      "pointcloud_scenario:=none"
+      "nominal_linear_x:=nan"
+    )
+    ;;
   *)
-    echo "Usage: ROS_DOMAIN_ID=<unused> $0 {subject2|subject2_fault|subject2_jump|subject1|subject1_none|subject1_blocked|subject1_fault|subject1_replay|subject1_invalid}" >&2
+    echo "Usage: ROS_DOMAIN_ID=<unused> $0 {subject2|subject2_fault|subject2_jump|subject1|subject1_none|subject1_blocked|subject1_fault|subject1_replay|subject1_invalid|subject1_release|subject1_nominal_stale|subject1_nominal_invalid}" >&2
     exit 2
     ;;
 esac

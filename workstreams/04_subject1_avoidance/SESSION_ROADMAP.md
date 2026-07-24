@@ -7,8 +7,11 @@
 - 障碍物与下一航点都已经位于 `base_link`。
 - 障碍存在时，固定低速采样多条常曲率前向轨迹。
 - 用膨胀后的矩形车体逐点碰撞检查，选择代价最低的安全轨迹。
-- 发布候选 `v/omega` 和 `avoidance_active`，但**不读取、接管、混合或转发其他团队的巡航命令**。
-- 无障碍时 `active=false` 且候选命令为零；输入超时或无安全轨迹时 `active=true` 且命令为零。
+- 读取其他团队的 `/subject1/nominal_cmd_vel`，在同一个 timer 回调内原子选择
+  巡航或避障命令，并作为科目一唯一发布者输出 `/cmd_vel`。
+- 无障碍时 `active=false`、候选命令为零且透传有效巡航命令；障碍存在且有
+  安全轨迹时输出避障命令；blocked/stale/invalid 任一当前选中输入都输出零。
+- 保留 `avoidance_active`、`avoid_cmd_vel` 和选中轨迹作为诊断接口。
 
 这是受 Nav2 DWB“采样—评分”结构启发的独立小实现，不依赖 Nav2/PCL，也没有复制第三方源码。
 
@@ -18,17 +21,27 @@
 
 - `/subject1/obstacles`，`geometry_msgs/msg/PoseArray`：障碍栅格中心，坐标系应为 `base_link`。
 - `/subject1/next_waypoint_base`，`geometry_msgs/msg/PointStamped`：下一航点，坐标系应为 `base_link`。
+- `/subject1/nominal_cmd_vel`，`geometry_msgs/msg/Twist`：其他团队持续发布的
+  平面巡航命令，只允许 `linear.x` 与 `angular.z` 非零。
 
 输出：
 
 - `/subject1/avoidance_active`，`std_msgs/msg/Bool`。
 - `/subject1/avoid_cmd_vel`，`geometry_msgs/msg/TwistStamped`：只使用 `linear.x` 和 `angular.z`。
 - `/subject1/selected_trajectory`，`nav_msgs/msg/Path`：调试用的选中 rollout。
+- `/cmd_vel`，`geometry_msgs/msg/Twist`：最终命令；科目一运行图中本节点是
+  唯一发布者。
 
 当前节点按本机**接收时间**检查超时，不依赖不同设备间尚未验证的绝对时钟同步；
 但两路消息的源时间戳都必须非零且严格递增，重复/倒退时间戳不会刷新接收时间。
 “相关障碍”由障碍是否与膨胀后的直线 nominal rollout 碰撞定义，避免另设一套
 trigger corridor 与碰撞几何漂移。
+
+名义命令没有 header，因此只按本机接收时间检查 `nominal_cmd_timeout_s`。若
+避障 active，则只有有限值且确有安全轨迹的 local candidate 可被选择，绝不因
+blocked/invalid 回退到巡航；若避障 inactive，则只有新鲜、有限且严格平面的
+nominal command 可被透传。计算 planner result、选择命令和发布 `/cmd_vel` 在
+同一个 timer 回调内完成。
 
 ## 3. 算法与参数
 
@@ -56,6 +69,7 @@ omega = v*k
 | `footprint_half_width_m` | 车体矩形半宽 | 0.40 m |
 | `inflation_m` | 额外安全膨胀 | 0.20 m |
 | `input_timeout_s` | 任一输入超时阈值 | 0.30 s |
+| `nominal_cmd_timeout_s` | 巡航命令接收超时阈值 | 0.30 s |
 | `goal_distance_weight` | 目标距离权重 | 1.0 |
 | `heading_weight` | 航向误差权重 | 0.7 |
 | `curvature_weight` | 转弯幅度惩罚 | 0.15 |
@@ -96,13 +110,20 @@ ros2 run ugv_subject1_avoidance_mvp local_avoidance_node --ros-args \
 
 ## 6. 真实测试步骤
 
-1. **执行器断开**：静态发布空 `PoseArray`，验证 active=false、命令恒零。
-2. **超时**：停止任一输入，最多 `input_timeout_s + 1/publish_rate_hz` 后应 active=true、命令为零。
+1. **执行器断开**：持续发布空 `PoseArray`、航点和有效 nominal，验证
+   active=false、候选为零、最终命令等于 nominal。
+2. **超时**：停止障碍/航点时，最多 `input_timeout_s + 1/publish_rate_hz`
+   后应 active=true、最终命令为零；停止 nominal 时，无障碍分支最多
+   `nominal_cmd_timeout_s + 1/publish_rate_hz` 后最终命令为零。
 3. **桌面合成障碍**：分别发布左、右、中央障碍；在 RViz 检查轨迹方向和 `omega` 符号。
 4. **实车静止**：接入真实感知，确认障碍中心与车体方向一致，没有 self points；输出仍不连接执行器。
 5. **封闭低速场地**：软障碍、急停人员、0.10 m/s 开始；逐步验证直通、左绕、右绕、封堵停车。
-6. **交接测试**：由集成方验证 active 的边沿和下游仲裁。该包本身不订阅巡航命令。
-7. 记录 `/subject1/obstacles`、航点、active、候选命令、选中轨迹和 TF；测试后复盘最小净空。
+6. **释放测试**：障碍消失后验证从避障命令恢复到 nominal；全过程
+   `/cmd_vel` 只能有一个发布者。
+7. **无效输入**：wrong-frame、重放/倒退时间戳、全 NaN 点云、非有限或
+   非平面 nominal、全部轨迹 blocked 均必须得到最终零。
+8. 记录 `/subject1/obstacles`、航点、nominal、active、候选命令、最终命令、
+   选中轨迹和 TF；测试后复盘最小净空。
 
 ## 7. 下一会话提示模板
 
@@ -110,7 +131,8 @@ ros2 run ugv_subject1_avoidance_mvp local_avoidance_node --ros-args \
 只修改 src/ugv_subject1_avoidance_mvp 和 workstreams/04_subject1_avoidance。
 先读根 AGENTS.md、docs/ARCHITECTURE.md、docs/INTERFACES.md 和本路线图。
 当前目标：[填写一个可验证目标]
-必须保持：无障碍 inactive+零命令；超时/封堵 active+零命令；不接触巡航命令。
+必须保持：无障碍透传有效 nominal；安全轨迹时选择 local；blocked/stale/invalid
+最终为零；同一 timer 原子选择；科目一只有一个 /cmd_vel 发布者。
 先运行包级测试，修改后再跑仓库规定的完整检查。不要声称合成测试等于真车成功。
 ```
 
@@ -121,4 +143,8 @@ ros2 run ugv_subject1_avoidance_mvp local_avoidance_node --ros-args \
 - [ ] 用真实 Horizon 障碍输出确定输入频率，随后冻结 timeout。
 - [ ] 确认感知 PoseArray 中单点代表栅格中心还是更大目标；当前碰撞模型把点当占据中心并仅用车辆膨胀。
 - [ ] 坡地、沟壑、动态障碍不在 MVP 保证范围；真实赛道失败证据出现后再决定是否增加模型。
-- [ ] 下游团队/集成包负责仲裁与硬件 watchdog；本包不得自行扩张该职责。
+- [ ] 其他团队持续提供 `/subject1/nominal_cmd_vel` 和已在 `base_link` 的
+  `/subject1/next_waypoint_base`。
+- [ ] 下游团队负责硬件 watchdog；必须实测消息断流后的停车延迟。
+- [ ] 科目一不猜测 identity `map→odom`；全局位姿语义确认前 manager 保持
+  未初始化，局部机体系闭环不依赖该 TF。

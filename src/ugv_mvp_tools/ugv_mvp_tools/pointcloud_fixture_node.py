@@ -26,16 +26,22 @@ class PointCloudFixtureNode(Node):
         self.declare_parameter("rate_hz", 10.0)
         self.declare_parameter("stop_after_s", -1.0)
         self.declare_parameter("freeze_stamp_after_s", -1.0)
+        self.declare_parameter("scenario_after_s", -1.0)
+        self.declare_parameter("scenario_after", "none")
         rate_hz = float(self.get_parameter("rate_hz").value)
         self.stop_after_s = float(self.get_parameter("stop_after_s").value)
         self.freeze_stamp_after_s = float(
             self.get_parameter("freeze_stamp_after_s").value
+        )
+        self.scenario_after_s = float(
+            self.get_parameter("scenario_after_s").value
         )
         if (
             not math.isfinite(rate_hz)
             or rate_hz <= 0.0
             or not math.isfinite(self.stop_after_s)
             or not math.isfinite(self.freeze_stamp_after_s)
+            or not math.isfinite(self.scenario_after_s)
         ):
             raise ValueError("fixture rates and fault times must be finite")
         self.started_at = time.monotonic()
@@ -65,10 +71,13 @@ class PointCloudFixtureNode(Node):
         else:
             header.stamp = self.get_clock().now().to_msg()
         header.frame_id = str(self.get_parameter("frame_id").value)
+        scenario = str(self.get_parameter("scenario").value)
+        if self.scenario_after_s >= 0.0 and elapsed >= self.scenario_after_s:
+            scenario = str(self.get_parameter("scenario_after").value)
         msg = point_cloud2.create_cloud(
             header,
             self.fields,
-            scenario_points(str(self.get_parameter("scenario").value)),
+            scenario_points(scenario),
         )
         try:
             self.publisher.publish(msg)

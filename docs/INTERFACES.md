@@ -51,17 +51,41 @@ If path, TF, trusted odom, or odom-valid status is stale/invalid, `/cmd_vel` is
 zero. Because `geometry_msgs/msg/Twist` has no header or expiry field, the
 downstream vehicle interface must independently enforce its approved watchdog.
 
-## Subject 1 — unchanged
+## Subject 1 local closed loop
 
 | Topic | Type | Meaning |
 |---|---|---|
 | `/livox/lidar` | `sensor_msgs/msg/PointCloud2` | Horizon PointCloud2 |
 | `/subject1/obstacles` | `geometry_msgs/msg/PoseArray` | Body-frame occupied-cell centers |
 | `/subject1/obstacle_detected` | `std_msgs/msg/Bool` | Diagnostic obstacle presence |
-| `/subject1/next_waypoint_base` | `geometry_msgs/msg/PointStamped` | Next route waypoint already expressed in `base_link` |
-| `/subject1/avoidance_active` | `std_msgs/msg/Bool` | Local planner requests control |
-| `/subject1/avoid_cmd_vel` | `geometry_msgs/msg/TwistStamped` | Local avoidance candidate; zero while inactive |
+| `/subject1/next_waypoint_base` | `geometry_msgs/msg/PointStamped` | Other-team input: next route waypoint already expressed in `base_link` |
+| `/subject1/nominal_cmd_vel` | `geometry_msgs/msg/Twist` | Other-team input: nominal cruise command |
+| `/subject1/avoidance_active` | `std_msgs/msg/Bool` | Diagnostic: avoidance branch selected or fail-closed stop requested |
+| `/subject1/avoid_cmd_vel` | `geometry_msgs/msg/TwistStamped` | Diagnostic local avoidance candidate; zero while inactive or blocked |
 | `/subject1/selected_trajectory` | `nav_msgs/msg/Path` | Selected rollout diagnostic |
+| `/cmd_vel` | `geometry_msgs/msg/Twist` | Final Subject 1 command; only `local_avoidance_node` publishes it in the Subject 1 graph |
 
-The external Subject 1 takeover/return protocol remains unknown. Do not replace
-`/subject1/avoid_cmd_vel` with the Subject 2 final `/cmd_vel` contract.
+Both Subject 1 inputs must arrive continuously. The waypoint must use
+`header.frame_id=base_link` and a non-zero, strictly increasing timestamp.
+Obstacles must also use `base_link` with a non-zero, strictly increasing
+timestamp. The nominal command has no header, so freshness is measured from its
+local receipt time; it must contain only finite `linear.x` and `angular.z`, with
+`linear.y`, `linear.z`, `angular.x`, and `angular.y` exactly zero.
+
+Final selection is fail-closed:
+
+| Selected condition | Final `/cmd_vel` |
+|---|---|
+| No relevant obstacle; nominal fresh and planar | Pass through nominal `linear.x` and `angular.z` |
+| Relevant obstacle; safe local trajectory exists | Select local avoidance `linear.x` and `angular.z` |
+| Relevant obstacle but all trajectories blocked | Zero |
+| Perception or waypoint missing, stale, wrong-frame, replayed, or invalid | Zero; never fall back to nominal |
+| Nominal selected but missing, stale, non-finite, or non-planar | Zero |
+
+The selector computes the local plan, source choice, diagnostics, and final
+command in one timer callback. Run only one subject profile at a time: Subject 1
+and Subject 2 each own `/cmd_vel` in their respective launch graph.
+
+Subject 1 starts `map_odom_manager` with no valid initial transform. It does not
+publish `map→odom` before an explicit reviewed update, and its local contract
+ends at the already-transformed `base_link` waypoint.

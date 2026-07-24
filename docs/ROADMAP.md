@@ -1,8 +1,9 @@
 # Implementation roadmap
 
-Subject 2 remains the only critical path until its Horizon/LIO chain passes a
-disconnected-actuator end-to-end test and the non-zero vehicle gate is approved.
-Subject 1 interfaces are not changed by this priority.
+Subject 2 remains the field-validation priority until its Horizon/LIO chain
+passes a disconnected-actuator end-to-end test and the non-zero vehicle gate is
+approved. Subject 1's minimal software loop is now implemented in parallel, but
+its vehicle gates remain open.
 
 ## Current baseline
 
@@ -12,8 +13,11 @@ Implemented MVP pieces:
 - raw LIO pose adapter, odom guard, and last-trusted persistence;
 - temporary identity `map→odom` Subject 2 profile;
 - Pure Pursuit controller publishing `/cmd_vel` as `geometry_msgs/msg/Twist`;
-- one-command and local-only Subject 2 launches;
-- isolated fixtures for S2 nominal/fault/jump and S1 perception/avoidance.
+- one-command Horizon/LIO wrappers and local-only launches for both subjects;
+- Subject 1 body-frame obstacle grid, constant-curvature planner, nominal/local
+  atomic selector, and one final `/cmd_vel` publisher;
+- isolated fixtures for S2 nominal/fault/jump and S1
+  avoid/clear/blocked/fault/replay/invalid/release/nominal-fault behavior.
 
 The target chassis is two-sided differential-drive tracked. Track-level actuator
 conversion and hardware watchdog remain downstream responsibilities.
@@ -49,18 +53,27 @@ Required evidence:
 - Run straight line before left/right arcs, then terminal braking.
 - Record evidence and stop on any unexplained TF, odom, or command behavior.
 
-## Wave 3 — Subject 1 integration
+## Wave 3 — Subject 1 disconnected-actuator closure
 
-Keep the existing S1 topics and external takeover boundary:
+The local software loop is implemented:
 
 ```text
 Horizon PointCloud2 + approved S1 extrinsic
 → obstacle detector
-→ curvature avoidance candidate
-→ external takeover/return adapter after its contract is known
+→ curvature avoidance plan
+
+other team /subject1/nominal_cmd_vel
++ /subject1/next_waypoint_base
+→ atomic nominal/avoidance selection
+→ /cmd_vel Twist
 ```
 
-No S2 `/cmd_vel` decision is applied to `/subject1/avoid_cmd_vel`.
+Subject 1 starts `map_odom_manager` uninitialized and does not publish
+`map→odom` before an explicit reviewed update; its waypoint is already in
+`base_link`. Complete the measured extrinsic, footprint/height/ROI,
+speed/curvature, final watchdog, single-publisher, and all fail-closed tests
+before connecting actuators. Keep `/subject1/avoidance_active`,
+`/subject1/avoid_cmd_vel`, and `/subject1/selected_trajectory` as diagnostics.
 
 ## Wave 4 — confirmed global alignment and recovery
 

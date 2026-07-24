@@ -37,6 +37,34 @@ bool frame_id_matches(const std::string & actual, const std::string & expected)
   return !expected.empty() && actual == expected;
 }
 
+PlanarCommand select_final_command(
+  const PlanResult & plan, const NominalCommand & nominal, bool nominal_fresh)
+{
+  if (plan.active) {
+    if (plan.has_safe_trajectory && std::isfinite(plan.speed_mps) &&
+      std::isfinite(plan.yaw_rate_radps))
+    {
+      return {plan.speed_mps, plan.yaw_rate_radps};
+    }
+    return {};
+  }
+
+  const bool finite_nominal =
+    std::isfinite(nominal.linear_x) &&
+    std::isfinite(nominal.linear_y) &&
+    std::isfinite(nominal.linear_z) &&
+    std::isfinite(nominal.angular_x) &&
+    std::isfinite(nominal.angular_y) &&
+    std::isfinite(nominal.angular_z);
+  const bool planar_nominal =
+    nominal.linear_y == 0.0 && nominal.linear_z == 0.0 &&
+    nominal.angular_x == 0.0 && nominal.angular_y == 0.0;
+  if (!nominal_fresh || !finite_nominal || !planar_nominal) {
+    return {};
+  }
+  return {nominal.linear_x, nominal.angular_z};
+}
+
 LocalAvoidance::LocalAvoidance(const PlannerConfig & config)
 : config_(config)
 {

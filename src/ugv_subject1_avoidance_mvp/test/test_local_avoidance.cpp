@@ -8,9 +8,12 @@
 #include "gtest/gtest.h"
 
 using ugv_subject1_avoidance_mvp::LocalAvoidance;
+using ugv_subject1_avoidance_mvp::NominalCommand;
+using ugv_subject1_avoidance_mvp::PlanResult;
 using ugv_subject1_avoidance_mvp::PlannerConfig;
 using ugv_subject1_avoidance_mvp::Point2;
 using ugv_subject1_avoidance_mvp::frame_id_matches;
+using ugv_subject1_avoidance_mvp::select_final_command;
 
 namespace
 {
@@ -165,4 +168,62 @@ TEST(LocalAvoidance, FullyBlockedReturnsActiveZeroCommand)
   EXPECT_DOUBLE_EQ(result.speed_mps, 0.0);
   EXPECT_DOUBLE_EQ(result.yaw_rate_radps, 0.0);
   EXPECT_TRUE(result.trajectory.empty());
+}
+
+TEST(CommandSelection, PassesThroughFreshPlanarNominalWhenAvoidanceIsInactive)
+{
+  const auto command = select_final_command(
+    PlanResult{}, NominalCommand{0.7, 0.0, 0.0, 0.0, 0.0, -0.3}, true);
+  EXPECT_DOUBLE_EQ(command.linear_x_mps, 0.7);
+  EXPECT_DOUBLE_EQ(command.angular_z_radps, -0.3);
+}
+
+TEST(CommandSelection, ActiveAvoidanceAtomicallySelectsLocalCandidate)
+{
+  PlanResult plan;
+  plan.active = true;
+  plan.has_safe_trajectory = true;
+  plan.speed_mps = 0.2;
+  plan.yaw_rate_radps = 0.4;
+  const auto command = select_final_command(
+    plan, NominalCommand{0.8, 0.0, 0.0, 0.0, 0.0, -0.2}, true);
+  EXPECT_DOUBLE_EQ(command.linear_x_mps, 0.2);
+  EXPECT_DOUBLE_EQ(command.angular_z_radps, 0.4);
+}
+
+TEST(CommandSelection, ActiveBlockedOrInvalidCandidateNeverFallsBackToNominal)
+{
+  PlanResult blocked;
+  blocked.active = true;
+  const auto blocked_command = select_final_command(
+    blocked, NominalCommand{0.8, 0.0, 0.0, 0.0, 0.0, -0.2}, true);
+  EXPECT_DOUBLE_EQ(blocked_command.linear_x_mps, 0.0);
+  EXPECT_DOUBLE_EQ(blocked_command.angular_z_radps, 0.0);
+
+  blocked.has_safe_trajectory = true;
+  blocked.speed_mps = std::numeric_limits<double>::quiet_NaN();
+  const auto invalid_candidate = select_final_command(
+    blocked, NominalCommand{0.8, 0.0, 0.0, 0.0, 0.0, -0.2}, true);
+  EXPECT_DOUBLE_EQ(invalid_candidate.linear_x_mps, 0.0);
+  EXPECT_DOUBLE_EQ(invalid_candidate.angular_z_radps, 0.0);
+}
+
+TEST(CommandSelection, StaleOrInvalidNominalStopsWhenAvoidanceIsInactive)
+{
+  const NominalCommand valid{0.7, 0.0, 0.0, 0.0, 0.0, -0.3};
+  const auto stale = select_final_command(PlanResult{}, valid, false);
+  EXPECT_DOUBLE_EQ(stale.linear_x_mps, 0.0);
+  EXPECT_DOUBLE_EQ(stale.angular_z_radps, 0.0);
+
+  auto non_finite = valid;
+  non_finite.angular_z = std::numeric_limits<double>::infinity();
+  const auto invalid = select_final_command(PlanResult{}, non_finite, true);
+  EXPECT_DOUBLE_EQ(invalid.linear_x_mps, 0.0);
+  EXPECT_DOUBLE_EQ(invalid.angular_z_radps, 0.0);
+
+  auto non_planar = valid;
+  non_planar.linear_y = 0.1;
+  const auto invalid_plane = select_final_command(PlanResult{}, non_planar, true);
+  EXPECT_DOUBLE_EQ(invalid_plane.linear_x_mps, 0.0);
+  EXPECT_DOUBLE_EQ(invalid_plane.angular_z_radps, 0.0);
 }

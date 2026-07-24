@@ -14,6 +14,7 @@ map_odom_manager:
     odom_frame: odom
     base_frame: base_link
     auto_align_from_path: false
+    initial_transform_valid: false
     require_odom_invalid_for_update: false
     publish_rate_hz: 20.0
     initial.x: 0.0
@@ -52,6 +53,7 @@ local_avoidance_node:
     frame_id: base_link
     publish_rate_hz: 20.0
     input_timeout_s: 0.30
+    nominal_cmd_timeout_s: 0.30
     speed_mps: 0.10
     max_curvature: 1.00
     curvature_samples: 31

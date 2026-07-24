@@ -6,10 +6,12 @@ This ROS 2 Humble MVP targets a two-sided differential-drive tracked vehicle. Th
 controller publishes body velocity, not track speed: the downstream base converts
 `linear.x [m/s]` and `angular.z [rad/s]` to left/right track actuation.
 
-Subject 2 is the critical path. Its current sensor chain is Horizon PointCloud2
-plus the existing LIO with `ScanRegistration.msg_type=1`. Subject 1 remains the
-separate Horizon obstacle-detection/avoidance interface described below; this
-Subject 2 decision does not rename or repurpose Subject 1 topics.
+Subject 2 remains the field-validation priority. Its current sensor chain is
+Horizon PointCloud2 plus the existing LIO with
+`ScanRegistration.msg_type=1`. Subject 1 now also has a minimal closed software
+loop: it selects the partner's nominal body command or a local body-frame
+avoidance command and is the only `/cmd_vel` publisher in the Subject 1 launch
+graph.
 
 The upstream system is still unknown. This repository defines a canonical ROS
 Path input but does not assume a network protocol, process layout, route source,
@@ -22,7 +24,7 @@ or production update rate.
 | `ugv_localization_mvp` | Adapt raw LIO lidar pose to `odom→base_link`, guard odometry, publish temporary `map→odom`, and persist the last trusted sample |
 | `ugv_subject2_mvp` | Follow `/subject2/path` with Pure Pursuit and publish final `/cmd_vel` |
 | `ugv_subject1_perception_mvp` | Transform Horizon PointCloud2 to `base_link`, filter it, and publish occupied obstacle cells |
-| `ugv_subject1_avoidance_mvp` | Sample low-speed constant-curvature avoidance candidates |
+| `ugv_subject1_avoidance_mvp` | Sample low-speed constant-curvature avoidance candidates and atomically select the final Subject 1 command |
 | `ugv_mvp_bringup` | Subject launches, parameters, external Horizon/LIO wrapper, and fixtures |
 
 No custom message package is required by this MVP.
@@ -71,14 +73,34 @@ Horizon /livox/lidar PointCloud2 + base_link→livox_frame
 
 /subject1/obstacles + /subject1/next_waypoint_base
   → sampled-curvature local avoidance
-  → /subject1/avoidance_active
-  → /subject1/avoid_cmd_vel
+  → local plan result
+
+other-team cruise → /subject1/nominal_cmd_vel
+
+local plan result + nominal command
+  → one timer callback atomically selects one source
+  → /cmd_vel geometry_msgs/msg/Twist
+
+diagnostics:
+  /subject1/avoidance_active
+  /subject1/avoid_cmd_vel
+  /subject1/selected_trajectory
 ```
 
-The detector may run continuously. The avoidance node asserts control only for
-a fresh relevant obstacle. Invalid, replayed, TF-failed, or missing input is not
-clear road: timeout produces `avoidance_active=true` with a zero candidate. The
-external takeover/return protocol remains unknown and outside this repository.
+The detector runs continuously. With fresh valid perception and waypoint data,
+no relevant obstacle means the selector passes through a fresh finite planar
+nominal command. A relevant obstacle with a safe rollout selects the avoidance
+command. A blocked rollout, stale/invalid perception or waypoint, or a
+stale/non-finite/non-planar nominal command when nominal is selected produces
+zero `/cmd_vel`. The decision and final publish happen in the same timer
+callback; there is no separate takeover edge on which two publishers can race.
+
+Subject 1 starts `map_odom_manager` with `initial_transform_valid=false`. It
+does not auto-align or publish `map→odom` until a reviewed
+`/localization/map_odom_update` arrives. The partner's global pose, map origin,
+axes, heading, and timing are not confirmed. The required waypoint is already
+expressed in `base_link`, so perception and local avoidance do not depend on
+`map→odom`.
 
 ## TF authority
 
@@ -86,12 +108,14 @@ external takeover/return protocol remains unknown and outside this repository.
 map → odom → base_link → livox_frame
 ```
 
-- `map→odom`: `map_odom_manager`; identity for the temporary Subject 2 profile.
+- `map→odom`: `map_odom_manager`; identity only in the temporary Subject 2
+  profile. Subject 1 keeps the same manager uninitialized until an explicit
+  reviewed update.
 - `odom→base_link`: `lio_odom_adapter` from LIO lidar pose and the approved
   `base_link→livox_frame` extrinsic.
 - `base_link→livox_frame`: measured static transform supplied to bringup;
   disabled by default until approved.
-- Raw LIO `world→livox_frame`: the Horizon wrapper remaps its `/tf` output to
+- Raw LIO `world→livox_frame`: both Horizon wrappers remap its `/tf` output to
   `/lio_raw/tf`, so it never gives `livox_frame` a second parent in the canonical
   tree. An externally launched LIO must provide equivalent isolation.
 

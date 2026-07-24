@@ -17,9 +17,11 @@ def _isolated_remaps():
         "/subject1/obstacles",
         "/subject1/obstacle_detected",
         "/subject1/next_waypoint_base",
+        "/subject1/nominal_cmd_vel",
         "/subject1/avoidance_active",
         "/subject1/avoid_cmd_vel",
         "/subject1/selected_trajectory",
+        "/cmd_vel",
         "/tf",
         "/tf_static",
     )
@@ -32,20 +34,20 @@ def generate_launch_description() -> LaunchDescription:
     pointcloud_freeze_stamp_after_s = LaunchConfiguration(
         "pointcloud_freeze_stamp_after_s"
     )
+    pointcloud_scenario_after_s = LaunchConfiguration(
+        "pointcloud_scenario_after_s"
+    )
+    pointcloud_scenario_after = LaunchConfiguration("pointcloud_scenario_after")
+    nominal_cmd_stop_after_s = LaunchConfiguration("nominal_cmd_stop_after_s")
+    nominal_linear_x = LaunchConfiguration("nominal_linear_x")
+    nominal_angular_z = LaunchConfiguration("nominal_angular_z")
     bringup_share = FindPackageShare("ugv_mvp_bringup")
     production = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_share, "launch", "subject1.launch.py"])
         ),
         launch_arguments={
-            "publish_lidar_static_tf": "true",
-            "lidar_extrinsics_provenance": "fixture-zero-do-not-use-on-vehicle",
-            "base_to_lidar_x": "0.0",
-            "base_to_lidar_y": "0.0",
-            "base_to_lidar_z": "0.0",
-            "base_to_lidar_roll": "0.0",
-            "base_to_lidar_pitch": "0.0",
-            "base_to_lidar_yaw": "0.0",
+            "publish_lidar_static_tf": "false",
         }.items(),
     )
     return LaunchDescription(
@@ -55,10 +57,24 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "pointcloud_freeze_stamp_after_s", default_value="-1.0"
             ),
+            DeclareLaunchArgument(
+                "pointcloud_scenario_after_s", default_value="-1.0"
+            ),
+            DeclareLaunchArgument(
+                "pointcloud_scenario_after", default_value="none"
+            ),
+            DeclareLaunchArgument("nominal_cmd_stop_after_s", default_value="-1.0"),
+            DeclareLaunchArgument("nominal_linear_x", default_value="0.23"),
+            DeclareLaunchArgument("nominal_angular_z", default_value="-0.07"),
             GroupAction(
                 [
                     *_isolated_remaps(),
                     production,
+                    Node(
+                        package="ugv_mvp_tools",
+                        executable="static_tf_fixture_node",
+                        parameters=[{"production_mode": False}],
+                    ),
                     Node(
                         package="ugv_mvp_tools",
                         executable="pointcloud_fixture_node",
@@ -74,6 +90,11 @@ def generate_launch_description() -> LaunchDescription:
                                     pointcloud_freeze_stamp_after_s,
                                     value_type=float,
                                 ),
+                                "scenario_after_s": ParameterValue(
+                                    pointcloud_scenario_after_s,
+                                    value_type=float,
+                                ),
+                                "scenario_after": pointcloud_scenario_after,
                             }
                         ],
                     ),
@@ -86,6 +107,24 @@ def generate_launch_description() -> LaunchDescription:
                                 "frame_id": "base_link",
                                 "x_m": 4.0,
                                 "y_m": 0.0,
+                            }
+                        ],
+                    ),
+                    Node(
+                        package="ugv_mvp_tools",
+                        executable="nominal_cmd_fixture_node",
+                        parameters=[
+                            {
+                                "production_mode": False,
+                                "linear_x": ParameterValue(
+                                    nominal_linear_x, value_type=float
+                                ),
+                                "angular_z": ParameterValue(
+                                    nominal_angular_z, value_type=float
+                                ),
+                                "stop_after_s": ParameterValue(
+                                    nominal_cmd_stop_after_s, value_type=float
+                                ),
                             }
                         ],
                     ),

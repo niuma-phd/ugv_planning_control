@@ -29,11 +29,21 @@ ROS_DOMAIN_ID=176 scripts/run_fixture_smoke.sh subject1_blocked
 ROS_DOMAIN_ID=177 scripts/run_fixture_smoke.sh subject1_fault
 ROS_DOMAIN_ID=178 scripts/run_fixture_smoke.sh subject1_replay
 ROS_DOMAIN_ID=179 scripts/run_fixture_smoke.sh subject1_invalid
+ROS_DOMAIN_ID=180 scripts/run_fixture_smoke.sh subject1_release
+ROS_DOMAIN_ID=181 scripts/run_fixture_smoke.sh subject1_nominal_stale
+ROS_DOMAIN_ID=182 scripts/run_fixture_smoke.sh subject1_nominal_invalid
 ```
 
 The Subject 2 fixture verifies identity `map→odom`, canonical odom, zero on
 fault, and remapped `/fixture/cmd_vel` as `geometry_msgs/msg/Twist`. It does not
 run the real Horizon driver or LIO.
+
+The Subject 1 modes verify obstacle-triggered local selection, clear-road
+nominal passthrough, fully blocked zero, perception cutoff/replay/all-NaN
+fail-closed behavior, avoidance release back to nominal, and stale/invalid
+nominal zero. They also verify `/fixture/cmd_vel` has exactly one publisher and
+type `geometry_msgs/msg/Twist`. Fixtures use synthetic point clouds and a
+fixture-only static TF; they do not approve vehicle parameters or motion.
 
 ## 3. Subject 2 launch modes
 
@@ -158,12 +168,81 @@ record a SHA-256 manifest.
 Do not enable GPS/global recovery while upstream pose, datum, heading, clock, and
 LIO restart semantics remain unknown.
 
-## 6. Subject 1 tuning order
+## 6. Subject 1 launch, inspection, and tuning
 
-Subject 1 interfaces remain unchanged. Measure its independent lidar extrinsic
-and footprint, validate known obstacle positions, then tune self crop, height
-band, grid, inflation, rollout, and scoring. If no candidate is collision-free,
-stopping is correct.
+### One-command Horizon chain
+
+`subject1_horizon.launch.py` includes the Horizon PointCloud2 driver, scopes
+`ScanRegistration.msg_type=1` to LIO, remaps raw LIO TF to `/lio_raw/tf`, and
+starts the local Subject 1 stack:
+
+```bash
+source /opt/ros/humble/setup.bash
+source <LIVOX_DRIVER_INSTALL>/setup.bash
+source <LIO_INSTALL>/setup.bash
+source install/setup.bash
+ros2 launch ugv_mvp_bringup subject1_horizon.launch.py \
+  driver_config:=/absolute/path/to/validated_horizon_whitelist.json \
+  driver_allow_auto_discovery:=false \
+  publish_lidar_static_tf:=true \
+  lidar_extrinsics_provenance:=<APPROVED_RECORD_ID> \
+  base_to_lidar_x:=<METERS> \
+  base_to_lidar_y:=<METERS> \
+  base_to_lidar_z:=<METERS> \
+  base_to_lidar_roll:=<RADIANS> \
+  base_to_lidar_pitch:=<RADIANS> \
+  base_to_lidar_yaw:=<RADIANS>
+```
+
+The local-only equivalent is `subject1.launch.py` with the same seven
+extrinsic/provenance arguments. Subject 1 starts `map_odom_manager` with
+`initial_transform_valid=false`: it must not publish `map→odom` before an
+explicit reviewed `/localization/map_odom_update`. The local loop remains usable
+because the partner supplies `/subject1/next_waypoint_base` in `base_link`.
+
+### Disconnected-actuator inspection
+
+With a safe external nominal-command fixture or the partner program connected:
+
+```bash
+ros2 topic type /livox/lidar
+ros2 param get /scan_registration msg_type
+ros2 topic info -v /subject1/nominal_cmd_vel
+ros2 topic info -v /subject1/next_waypoint_base
+ros2 topic info -v /cmd_vel
+ros2 topic type /cmd_vel
+ros2 topic echo /subject1/avoidance_active
+ros2 topic echo /subject1/avoid_cmd_vel
+ros2 topic echo /subject1/selected_trajectory
+ros2 run tf2_ros tf2_echo base_link livox_frame
+```
+
+Required observations:
+
+- `/livox/lidar` is Horizon PointCloud2 and LIO uses `msg_type=1`;
+- raw LIO TF is isolated and measured `base_link→livox_frame` is available;
+- no `map→odom` appears before the explicit partner-reviewed update;
+- `/cmd_vel` is `geometry_msgs/msg/Twist` with exactly one publisher;
+- no relevant obstacle passes through fresh planar nominal `linear.x` and
+  `angular.z`;
+- a relevant obstacle with a safe trajectory selects the avoidance candidate;
+- obstacle release returns to nominal without a second command publisher;
+- blocked, stale perception/waypoint, stale nominal, and invalid selected input
+  all produce zero final `/cmd_vel`.
+
+### Tuning order
+
+1. Measure the independent lidar extrinsic, footprint, obstacle height band,
+   ROI, and self crop; validate known obstacle positions.
+2. Tune grid thresholds and inflation against real Horizon PointCloud2 bags.
+3. Load approved low-speed and curvature/yaw-rate limits; verify signs with
+   actuators disconnected.
+4. Tune rollout horizon, sampling, goal/heading score, and clearance score.
+5. Measure healthy input rates and freeze perception, waypoint, and nominal
+   timeouts from evidence.
+6. Verify no-obstacle passthrough, avoidance, release, blocked stop, and every
+   stale/invalid stop branch. If no candidate is collision-free, stopping is
+   correct.
 
 ## 7. Non-zero vehicle gate
 
@@ -180,3 +259,7 @@ All items below are mandatory:
 - every stale/disconnect/jump test produces zero while actuators are disconnected;
 - parameter/source revisions and evidence manifest recorded;
 - human authorization for straight-line low-speed testing before curves.
+
+For Subject 1, additionally require its measured footprint/height/ROI profile,
+approved speed and curvature, partner nominal/waypoint producers, one final
+publisher, and the full nominal/avoidance/release/fail-closed sequence.

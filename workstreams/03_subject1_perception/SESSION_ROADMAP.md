@@ -1,7 +1,9 @@
 # Subject 1 perception MVP session roadmap
 
 ## Outcome
-Turn Horizon `PointCloud2` into occupied 2-D cell centers in `base_link` and a conservative front-corridor Boolean. No PCL, Nav2 costmap, tracking, terrain model, or negative-obstacle claim.
+Keep Horizon `PointCloud2` running continuously and turn it into occupied 2-D
+cell centers in `base_link` plus a conservative front-corridor Boolean. No PCL,
+Nav2 costmap, tracking, terrain model, or negative-obstacle claim.
 
 ## Implemented baseline
 - Subscribe `/livox/lidar` with sensor-data QoS.
@@ -11,8 +13,11 @@ Turn Horizon `PointCloud2` into occupied 2-D cell centers in `base_link` and a c
 - Publish `/subject1/obstacles` and `/subject1/obstacle_detected`.
 - Bad input/TF fails closed by withholding output; repeated/backward stamps and
   clouds with too few finite points do not refresh validity. The avoidance
-  input timeout then requests active zero. Only a successfully decoded cloud
-  may publish false with an empty obstacle array.
+  input timeout then selects final zero `/cmd_vel`. Only a successfully decoded
+  cloud may publish false with an empty obstacle array.
+- The local body-frame perception/avoidance loop does not require `map→odom`.
+  Subject 1's manager starts uninitialized and publishes that TF only after an
+  explicit reviewed update.
 
 ## Real Horizon bag tuning
 1. Record stationary and slow bags with `/livox/lidar`, `/tf`, `/tf_static`, measured obstacles, clear-road segments, driver config, and bag SHA-256.
@@ -22,7 +27,8 @@ Turn Horizon `PointCloud2` into occupied 2-D cell centers in `base_link` and a c
 4. Measure vehicle envelope; tune `self_min/max_x/y` with margin without deleting nearby obstacles.
 5. Plot ground/obstacle height histograms and tune `min_z/max_z` on slopes, vegetation, and pitch. **TODO: height band needs real evidence.**
 6. Tune ROI/cell size for the planner; `min_points` against noise and smallest required obstacle; corridor against footprint/stopping distance.
-7. Replay normal/delayed/dropped input; verify timeout clears stale detections and record RDK CPU/memory.
+7. Replay normal/delayed/dropped input; verify invalid or stale perception
+   causes final zero rather than nominal fallback, and record RDK CPU/memory.
 
 ## Build, test, and run
 ```bash
@@ -46,3 +52,5 @@ On RDK use a disposable workspace and the same package-select commands. Bag repl
 - Clear-road false positives and required-obstacle misses quantified.
 - Tuned parameters plus bag evidence recorded.
 - RDK Release build/test and replay resource usage recorded.
+- Integrated fixture proves clear road can select nominal, a safe obstacle
+  trajectory can select avoidance, and perception fault selects zero.

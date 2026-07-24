@@ -27,6 +27,7 @@ class FixtureMonitor(Node):
         self.subject = "subject2" if mode.startswith("subject2") else "subject1"
         self.state: dict[str, object] = {
             "static_tf": False,
+            "map_odom_seen": False,
             "map_odom_identity": False,
             "valid": False,
             "obstacles": 0,
@@ -35,13 +36,22 @@ class FixtureMonitor(Node):
             "detected": False,
             "active": False,
             "inactive": False,
+            "current_active": False,
             "linear_x": 0.0,
             "angular_z": 0.0,
+            "candidate_linear_x": 0.0,
+            "candidate_angular_z": 0.0,
+            "candidate_saw_positive": False,
             "fault_invalid": False,
             "zero_command": False,
             "zero_after_fault": False,
             "saw_positive": False,
             "zero_after_positive": False,
+            "saw_nominal_final": False,
+            "saw_avoid_final": False,
+            "zero_after_avoid": False,
+            "zero_after_nominal": False,
+            "saw_nominal_after_avoid": False,
             "last_trusted_position": None,
             "last_trusted_orientation": None,
         }
@@ -106,6 +116,12 @@ class FixtureMonitor(Node):
             self.create_subscription(
                 TwistStamped,
                 "/fixture/subject1/avoid_cmd_vel",
+                self._on_candidate_command,
+                reliable,
+            )
+            self.create_subscription(
+                Twist,
+                "/fixture/cmd_vel",
                 self._on_command,
                 reliable,
             )
@@ -134,6 +150,7 @@ class FixtureMonitor(Node):
                 transform.header.frame_id == "map"
                 and transform.child_frame_id == "odom"
             ):
+                self.state["map_odom_seen"] = True
                 translation = transform.transform.translation
                 rotation = transform.transform.rotation
                 self.state["map_odom_identity"] = (
@@ -163,10 +180,21 @@ class FixtureMonitor(Node):
         self.state["detected"] = bool(self.state["detected"]) or message.data
 
     def _on_active(self, message: Bool) -> None:
+        self.state["current_active"] = message.data
         if message.data:
             self.state["active"] = True
         else:
             self.state["inactive"] = True
+
+    def _on_candidate_command(self, message: TwistStamped) -> None:
+        linear_x = message.twist.linear.x
+        angular_z = message.twist.angular.z
+        if not math.isfinite(linear_x) or not math.isfinite(angular_z):
+            return
+        self.state["candidate_linear_x"] = linear_x
+        self.state["candidate_angular_z"] = angular_z
+        if linear_x > 0.0:
+            self.state["candidate_saw_positive"] = True
 
     def _on_last_trusted(self, message: Odometry) -> None:
         position = message.pose.pose.position
@@ -187,16 +215,36 @@ class FixtureMonitor(Node):
         twist = message if isinstance(message, Twist) else message.twist
         linear_x = twist.linear.x
         angular_z = twist.angular.z
+        finite = math.isfinite(linear_x) and math.isfinite(angular_z)
+        zero = finite and abs(linear_x) < 1.0e-12 and abs(angular_z) < 1.0e-12
+        nominal = (
+            finite
+            and abs(linear_x - 0.23) < 1.0e-9
+            and abs(angular_z + 0.07) < 1.0e-9
+        )
+        if self.subject == "subject1":
+            if nominal:
+                self.state["saw_nominal_final"] = True
+                if bool(self.state["active"]) and not bool(
+                    self.state["current_active"]
+                ):
+                    self.state["saw_nominal_after_avoid"] = True
+            if (
+                finite
+                and bool(self.state["current_active"])
+                and linear_x > 0.0
+                and not nominal
+            ):
+                self.state["saw_avoid_final"] = True
+            if zero and bool(self.state["saw_avoid_final"]):
+                self.state["zero_after_avoid"] = True
+            if zero and bool(self.state["saw_nominal_final"]):
+                self.state["zero_after_nominal"] = True
         if math.isfinite(linear_x) and math.isfinite(angular_z) and linear_x > 0.0:
             self.state["saw_positive"] = True
             self.state["linear_x"] = linear_x
             self.state["angular_z"] = angular_z
-        if (
-            math.isfinite(linear_x)
-            and math.isfinite(angular_z)
-            and abs(linear_x) < 1.0e-12
-            and abs(angular_z) < 1.0e-12
-        ):
+        if zero:
             self.state["zero_command"] = True
             if bool(self.state["saw_positive"]):
                 self.state["zero_after_positive"] = True
@@ -234,8 +282,7 @@ class FixtureMonitor(Node):
                 and int(self.state["obstacles"]) == 0
                 and not bool(self.state["detected"])
                 and bool(self.state["inactive"])
-                and bool(self.state["zero_command"])
-                and float(self.state["linear_x"]) == 0.0
+                and bool(self.state["saw_nominal_final"])
             )
         if self.mode == "subject1_blocked":
             return (
@@ -252,8 +299,8 @@ class FixtureMonitor(Node):
                 and int(self.state["obstacles"]) > 0
                 and bool(self.state["detected"])
                 and bool(self.state["active"])
-                and bool(self.state["saw_positive"])
-                and bool(self.state["zero_after_positive"])
+                and bool(self.state["saw_avoid_final"])
+                and bool(self.state["zero_after_avoid"])
             )
         if self.mode == "subject1_invalid":
             return (
@@ -263,12 +310,39 @@ class FixtureMonitor(Node):
                 and bool(self.state["active"])
                 and bool(self.state["zero_command"])
             )
+        if self.mode == "subject1_release":
+            return (
+                bool(self.state["static_tf"])
+                and int(self.state["obstacles"]) > 0
+                and bool(self.state["detected"])
+                and bool(self.state["active"])
+                and bool(self.state["inactive"])
+                and bool(self.state["saw_avoid_final"])
+                and bool(self.state["saw_nominal_after_avoid"])
+            )
+        if self.mode == "subject1_nominal_stale":
+            return (
+                bool(self.state["static_tf"])
+                and int(self.state["obstacle_messages"]) > 0
+                and bool(self.state["inactive"])
+                and bool(self.state["saw_nominal_final"])
+                and bool(self.state["zero_after_nominal"])
+            )
+        if self.mode == "subject1_nominal_invalid":
+            return (
+                bool(self.state["static_tf"])
+                and int(self.state["obstacle_messages"]) > 0
+                and bool(self.state["inactive"])
+                and not bool(self.state["saw_nominal_final"])
+                and bool(self.state["zero_command"])
+            )
         return (
             bool(self.state["static_tf"])
             and int(self.state["obstacles"]) > 0
             and bool(self.state["detected"])
             and bool(self.state["active"])
-            and float(self.state["linear_x"]) > 0.0
+            and bool(self.state["candidate_saw_positive"])
+            and bool(self.state["saw_avoid_final"])
             and float(self.state["angular_z"]) > 0.0
         )
 
@@ -299,9 +373,12 @@ class FixtureMonitor(Node):
                 "/subject1/obstacles",
                 "/subject1/obstacle_detected",
                 "/subject1/next_waypoint_base",
+                "/subject1/nominal_cmd_vel",
                 "/subject1/avoidance_active",
                 "/subject1/avoid_cmd_vel",
                 "/subject1/selected_trajectory",
+                "/control/cmd_vel",
+                "/cmd_vel",
                 "/tf",
                 "/tf_static",
             }
@@ -309,6 +386,23 @@ class FixtureMonitor(Node):
         leaked = sorted(canonical.intersection(graph))
         if leaked:
             raise RuntimeError(f"fixture leaked canonical topics: {leaked}")
+        if self.subject == "subject1":
+            if bool(self.state["map_odom_seen"]):
+                raise RuntimeError(
+                    "Subject 1 fixture published map->odom before an explicit update"
+                )
+            final_types = graph.get("/fixture/cmd_vel")
+            if final_types != ["geometry_msgs/msg/Twist"]:
+                raise RuntimeError(
+                    "fixture final command type mismatch: "
+                    f"{final_types!r}"
+                )
+            publishers = self.get_publishers_info_by_topic("/fixture/cmd_vel")
+            if len(publishers) != 1:
+                raise RuntimeError(
+                    "fixture must have exactly one final command publisher; "
+                    f"found {len(publishers)}"
+                )
 
 
 def main() -> int:
@@ -322,6 +416,9 @@ def main() -> int:
             "subject1_fault",
             "subject1_replay",
             "subject1_invalid",
+            "subject1_release",
+            "subject1_nominal_stale",
+            "subject1_nominal_invalid",
             "subject2",
             "subject2_fault",
         ),

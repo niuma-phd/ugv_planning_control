@@ -52,7 +52,7 @@ public:
     if (!finiteAndNormalized(transform_.transform)) {
       throw std::invalid_argument("initial map->odom transform must be finite and normalized");
     }
-    transform_ready_ = !auto_align_;
+    transform_ready_ = declare_parameter<bool>("initial_transform_valid", !auto_align_);
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     update_sub_ = create_subscription<geometry_msgs::msg::TransformStamped>(
@@ -69,6 +69,8 @@ public:
         declare_parameter<std::string>("odom_topic", "/localization/trusted_odom"), rclcpp::QoS(10),
         std::bind(&MapOdomManagerNode::onOdom, this, std::placeholders::_1));
       RCLCPP_WARN(get_logger(), "waiting to latch map->odom from path start and first canonical odom");
+    } else if (!transform_ready_) {
+      RCLCPP_WARN(get_logger(), "waiting for an explicit map->odom update");
     }
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / publish_rate_hz),

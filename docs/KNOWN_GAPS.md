@@ -46,15 +46,27 @@ trusted sample; automatic restart is disabled.
 
 ## Blocks Subject 1 vehicle testing
 
-- Subject 1's independently approved Horizon extrinsic, footprint, and safety
+- Subject 1's independently approved Horizon `base_link→livox_frame` 6DoF and
+  measurement-record identifier.
+- Measured vehicle footprint, obstacle height band, ROI/self crop, and safety
   inflation.
 - Real Horizon PointCloud2 bag and body-axis verification.
 - Ground/terrain thresholds on the actual course.
-- External team's exact takeover/return mechanism.
-- Actual next-waypoint source expressed in `base_link`.
+- Approved Subject 1 speed, curvature/yaw-rate limit, first-test speed, braking
+  evidence, emergency/remote stop, and independent downstream `/cmd_vel`
+  watchdog.
+- Other team's live `/subject1/nominal_cmd_vel` producer and actual fresh
+  next-waypoint source expressed in `base_link`.
+- Disconnected-actuator evidence that obstacle release returns to nominal and
+  that blocked, stale, wrong-frame, replayed, non-finite, and non-planar
+  selected inputs produce zero final `/cmd_vel`.
+- Confirmation that the Subject 1 process is the only `/cmd_vel` publisher in
+  its runtime graph.
 
-Subject 1 interfaces remain `/subject1/avoidance_active` and
-`/subject1/avoid_cmd_vel`; the Subject 2 `/cmd_vel` change does not replace them.
+Subject 1 deliberately starts with no valid `map→odom`. Its manager waits for an
+explicit reviewed update. The body-frame loop is usable without global
+alignment, but any map-derived waypoint adapter remains blocked on the partner's
+global pose, map origin/axes, heading, timing, and quality contract.
 
 ## Does not block coding and fixtures
 

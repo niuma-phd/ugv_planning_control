@@ -11,6 +11,7 @@
 
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/pose_array.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 #include "geometry_msgs/msg/twist_stamped.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -43,11 +44,21 @@ public:
     config.clearance_weight = declare_parameter("clearance_weight", config.clearance_weight);
     config.max_clearance_reward_m = declare_parameter(
       "max_clearance_reward_m", config.max_clearance_reward_m);
-    input_timeout_ = std::chrono::duration<double>(
-      declare_parameter("input_timeout_s", 0.30));
+    const double input_timeout_s = declare_parameter("input_timeout_s", 0.30);
+    const double nominal_cmd_timeout_s = declare_parameter("nominal_cmd_timeout_s", 0.30);
     publish_rate_hz_ = declare_parameter("publish_rate_hz", 20.0);
     frame_id_ = declare_parameter<std::string>("frame_id", "base_link");
 
+    if (frame_id_.empty() || !std::isfinite(publish_rate_hz_) ||
+      !std::isfinite(input_timeout_s) || !std::isfinite(nominal_cmd_timeout_s) ||
+      publish_rate_hz_ <= 0.0 || input_timeout_s <= 0.0 || nominal_cmd_timeout_s <= 0.0)
+    {
+      throw std::invalid_argument(
+              "frame_id and finite positive publish_rate_hz/input_timeout_s/"
+              "nominal_cmd_timeout_s are required");
+    }
+    input_timeout_ = std::chrono::duration<double>(input_timeout_s);
+    nominal_cmd_timeout_ = std::chrono::duration<double>(nominal_cmd_timeout_s);
     planner_ = std::make_unique<LocalAvoidance>(config);
     const auto qos = rclcpp::SensorDataQoS();
     obstacles_sub_ = create_subscription<geometry_msgs::msg::PoseArray>(
@@ -100,21 +111,25 @@ public:
         last_waypoint_stamp_ns_ = stamp_ns;
         have_waypoint_ = true;
       });
+    nominal_command_sub_ = create_subscription<geometry_msgs::msg::Twist>(
+      "/subject1/nominal_cmd_vel", rclcpp::QoS(1).reliable(),
+      [this](geometry_msgs::msg::Twist::ConstSharedPtr message) {
+        nominal_command_ = {
+          message->linear.x, message->linear.y, message->linear.z,
+          message->angular.x, message->angular.y, message->angular.z};
+        nominal_command_receive_time_ = std::chrono::steady_clock::now();
+        have_nominal_command_ = true;
+      });
 
     active_pub_ = create_publisher<std_msgs::msg::Bool>(
       "/subject1/avoidance_active", rclcpp::QoS(1).reliable());
     command_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
       "/subject1/avoid_cmd_vel", rclcpp::QoS(1).reliable());
+    final_command_pub_ = create_publisher<geometry_msgs::msg::Twist>(
+      "/cmd_vel", rclcpp::QoS(1).reliable());
     trajectory_pub_ = create_publisher<nav_msgs::msg::Path>(
       "/subject1/selected_trajectory", rclcpp::QoS(1).reliable());
 
-    if (frame_id_.empty() || !std::isfinite(publish_rate_hz_) ||
-      !std::isfinite(input_timeout_.count()) || publish_rate_hz_ <= 0.0 ||
-      input_timeout_.count() <= 0.0)
-    {
-      throw std::invalid_argument(
-              "frame_id and finite positive publish_rate_hz/input_timeout_s are required");
-    }
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / publish_rate_hz_),
       [this]() {publish();});
@@ -141,6 +156,15 @@ private:
     command.twist.angular.z = result.yaw_rate_radps;
     command_pub_->publish(command);
 
+    const bool nominal_fresh = have_nominal_command_ &&
+      now_steady - nominal_command_receive_time_ <= nominal_cmd_timeout_;
+    const PlanarCommand final_command =
+      select_final_command(result, nominal_command_, nominal_fresh);
+    geometry_msgs::msg::Twist output;
+    output.linear.x = final_command.linear_x_mps;
+    output.angular.z = final_command.angular_z_radps;
+    final_command_pub_->publish(output);
+
     nav_msgs::msg::Path path;
     path.header = command.header;
     path.poses.reserve(result.trajectory.size());
@@ -161,18 +185,24 @@ private:
   Point2 goal_;
   bool have_obstacles_{false};
   bool have_waypoint_{false};
+  bool have_nominal_command_{false};
+  NominalCommand nominal_command_;
   std::chrono::steady_clock::time_point obstacle_receive_time_{};
   std::chrono::steady_clock::time_point waypoint_receive_time_{};
+  std::chrono::steady_clock::time_point nominal_command_receive_time_{};
   std::optional<std::int64_t> last_obstacle_stamp_ns_;
   std::optional<std::int64_t> last_waypoint_stamp_ns_;
   std::chrono::duration<double> input_timeout_{0.30};
+  std::chrono::duration<double> nominal_cmd_timeout_{0.30};
   double publish_rate_hz_{20.0};
   std::string frame_id_{"base_link"};
 
   rclcpp::Subscription<geometry_msgs::msg::PoseArray>::SharedPtr obstacles_sub_;
   rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr waypoint_sub_;
+  rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr nominal_command_sub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr active_pub_;
   rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr command_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr final_command_pub_;
   rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr trajectory_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

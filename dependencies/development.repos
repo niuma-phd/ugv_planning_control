@@ -1,0 +1,10 @@
+repositories:
+  livox_ros2_driver:
+    type: git
+    url: https://github.com/niuma-phd/livox_ros2_driver.git
+    version: e8fdb55d55a15412db25ab5bf9f3b7b875b5b9a6
+  LIO_Livox_ROS2:
+    type: git
+    url: https://github.com/niuma-phd/ROS2_LIO_Livox.git
+    version: fbfe521364f6f7daad61792ea761547bcfe4d956
+

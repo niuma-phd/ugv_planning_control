@@ -1,0 +1,47 @@
+# ROS 2 / colcon
+build/
+install/
+log/
+.colcon/
+
+# CMake and compiled output
+CMakeFiles/
+CMakeCache.txt
+compile_commands.json
+*.o
+*.so
+*.a
+
+# Python and test caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+
+# IDE / OS / temporary files
+.vscode/
+.idea/
+*~
+*.swp
+.DS_Store
+
+# Codex/OMX per-session state (approved plans belong in docs/)
+.omx/
+
+# Secrets and machine-local configuration
+.env
+.env.*
+*.pem
+*.key
+*.secret
+
+# Large vehicle data stays in external artifact storage
+*.db3
+*.mcap
+*.bag
+*.pcd
+bags/
+data/
+artifacts/*
+!artifacts/README.md
+

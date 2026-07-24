@@ -25,10 +25,11 @@ handling.
 Launch the isolated Subject 2 fixture graph:
 
 ```bash
+# Terminal 1
 ROS_DOMAIN_ID=71 ros2 launch ugv_mvp_bringup subject2_fixture.launch.py
-ROS_DOMAIN_ID=71 ros2 topic echo /fixture/control/cmd_vel
-ROS_DOMAIN_ID=71 ros2 run tf2_ros tf2_echo base_link livox_frame \
-  --ros-args -r /tf:=/fixture/tf -r /tf_static:=/fixture/tf_static
+
+# Terminal 2, from the repository root
+ROS_DOMAIN_ID=71 python3 scripts/verify_fixture_runtime.py subject2
 ```
 
 The fixture never publishes canonical `/control/cmd_vel`. For focused
@@ -40,10 +41,11 @@ fault.
 ### Subject 1
 
 ```bash
+# Terminal 1
 ROS_DOMAIN_ID=72 ros2 launch ugv_mvp_bringup subject1_fixture.launch.py
-ROS_DOMAIN_ID=72 ros2 topic echo /fixture/subject1/obstacles
-ROS_DOMAIN_ID=72 ros2 topic echo /fixture/subject1/avoidance_active
-ROS_DOMAIN_ID=72 ros2 topic echo /fixture/subject1/avoid_cmd_vel
+
+# Terminal 2, from the repository root
+ROS_DOMAIN_ID=72 python3 scripts/verify_fixture_runtime.py subject1
 ```
 
 The cloud fixture uses `livox_frame`, so this path also exercises the static TF

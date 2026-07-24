@@ -158,6 +158,11 @@ private:
 
     geometry_msgs::msg::PoseStamped current_source;
     current_source.header = odom_->header;
+    // Freshness is checked above with a monotonic receive timestamp. Use the
+    // latest map->odom transform here because that transform is broadcast by a
+    // separate timer and is not guaranteed to bracket the odometry stamp.
+    current_source.header.stamp.sec = 0;
+    current_source.header.stamp.nanosec = 0;
     current_source.pose = odom_->pose.pose;
     geometry_msgs::msg::PoseStamped current_in_path;
     try {

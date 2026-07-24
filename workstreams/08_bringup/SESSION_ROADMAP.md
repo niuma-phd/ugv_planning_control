@@ -36,6 +36,11 @@ publish the canonical `/control/cmd_vel` or `/subject1/avoid_cmd_vel` topics.
 Keep using a separate `ROS_DOMAIN_ID`; isolation is defense in depth, not a
 reason to connect actuators during a fixture test.
 
+`scripts/verify_fixture_runtime.py subject1|subject2` subscribes directly with
+rclpy and proves the expected non-zero command, valid/detected state, static
+TF, and absence of the canonical command topic without perturbing the RDK with
+multiple discovery-heavy CLI processes.
+
 ## Next low-cost session
 
 1. Run fixture launches on a new ROS domain and assert command signs/topics.

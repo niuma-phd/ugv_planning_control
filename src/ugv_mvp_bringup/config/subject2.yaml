@@ -27,7 +27,9 @@ odom_guard:
     snapshot_directory: /home/sunrise/.ros/ugv_mvp
     snapshot_basename: last_good_subject2_odom
     watchdog_rate_hz: 20.0
-    max_age_s: 0.30
+    # Guard persistence threshold; the controller independently stops on its
+    # 0.30 s receive timeout before this fault is latched.
+    max_age_s: 0.50
     future_tolerance_s: 0.05
     quaternion_norm_tolerance: 0.05
     # Candidate values: replace from healthy Avia bag statistics.
@@ -56,4 +58,3 @@ waypoint_controller_node:
     valid_timeout_sec: 0.50
     transform_timeout_sec: 0.05
     base_frame: base_link
-

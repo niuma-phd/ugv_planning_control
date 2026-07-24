@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import rclpy
 from geometry_msgs.msg import PointStamped
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 
 
@@ -36,9 +37,12 @@ def main() -> None:
     node = NextWaypointFixtureNode()
     try:
         rclpy.spin(node)
+    except (KeyboardInterrupt, ExternalShutdownException):
+        pass
     finally:
         node.destroy_node()
-        rclpy.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 if __name__ == "__main__":

@@ -12,6 +12,7 @@ setup(
         (f"share/{package_name}", ["package.xml"]),
     ],
     install_requires=["setuptools"],
+    tests_require=["pytest"],
     zip_safe=True,
     maintainer="xcc",
     maintainer_email="xcxc@nuaa.com",

@@ -29,10 +29,11 @@ dependencies/ pinned external source references (not vendored code)
 ```
 
 See `docs/ROADMAP.md` for integration order and `AGENTS.md` for non-negotiable
-repository rules.
+repository rules. See `docs/CODEX_PARALLEL_WORKFLOW.md` for GitHub setup,
+worktree ownership and parallel Codex session guidance.
 
 ## Status
 
-MVP implementation in progress. No profile is approved for non-zero
-live-vehicle control until the gaps in `docs/KNOWN_GAPS.md` are closed.
-
+软件 MVP 已实现并经 RDK fixture 验证，但未获实车批准。Fixture、单元测试和
+执行器断开的验证都不能替代实车批准；在 `docs/KNOWN_GAPS.md` 的阻塞项关闭前，
+任何配置都不得用于非零实车控制。

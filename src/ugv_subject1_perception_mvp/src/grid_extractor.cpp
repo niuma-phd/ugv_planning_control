@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <stdexcept>
 #include <utility>
@@ -13,11 +14,35 @@ namespace ugv_subject1_perception_mvp
 GridExtractor::GridExtractor(GridParameters parameters)
 : parameters_(parameters)
 {
-  if (!(parameters_.roi_min_x < parameters_.roi_max_x) ||
+  const double maximum_grid_index = std::max(
+    {std::abs(parameters_.roi_min_x), std::abs(parameters_.roi_max_x),
+      std::abs(parameters_.roi_min_y), std::abs(parameters_.roi_max_y)}) /
+    parameters_.cell_size;
+  const bool finite_parameters =
+    std::isfinite(parameters_.roi_min_x) &&
+    std::isfinite(parameters_.roi_max_x) &&
+    std::isfinite(parameters_.roi_min_y) &&
+    std::isfinite(parameters_.roi_max_y) &&
+    std::isfinite(parameters_.min_z) &&
+    std::isfinite(parameters_.max_z) &&
+    std::isfinite(parameters_.self_min_x) &&
+    std::isfinite(parameters_.self_max_x) &&
+    std::isfinite(parameters_.self_min_y) &&
+    std::isfinite(parameters_.self_max_y) &&
+    std::isfinite(parameters_.cell_size) &&
+    std::isfinite(parameters_.corridor_min_x) &&
+    std::isfinite(parameters_.corridor_max_x) &&
+    std::isfinite(parameters_.corridor_half_width);
+  if (!finite_parameters ||
+    !(parameters_.roi_min_x < parameters_.roi_max_x) ||
     !(parameters_.roi_min_y < parameters_.roi_max_y) ||
     !(parameters_.min_z < parameters_.max_z) || parameters_.cell_size <= 0.0 ||
+    parameters_.self_min_x > parameters_.self_max_x ||
+    parameters_.self_min_y > parameters_.self_max_y ||
     parameters_.min_points <= 0 || parameters_.corridor_half_width < 0.0 ||
-    parameters_.corridor_min_x > parameters_.corridor_max_x)
+    parameters_.corridor_min_x > parameters_.corridor_max_x ||
+    !std::isfinite(maximum_grid_index) ||
+    maximum_grid_index >= static_cast<double>(std::numeric_limits<std::int64_t>::max()))
   {
     throw std::invalid_argument("invalid grid extractor parameters");
   }

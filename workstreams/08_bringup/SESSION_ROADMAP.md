@@ -36,10 +36,11 @@ publish the canonical `/control/cmd_vel` or `/subject1/avoid_cmd_vel` topics.
 Keep using a separate `ROS_DOMAIN_ID`; isolation is defense in depth, not a
 reason to connect actuators during a fixture test.
 
-`scripts/verify_fixture_runtime.py subject1|subject2` subscribes directly with
-rclpy and proves the expected non-zero command, valid/detected state, static
-TF, and absence of the canonical command topic without perturbing the RDK with
-multiple discovery-heavy CLI processes.
+`scripts/run_fixture_smoke.sh` owns exact process-group startup/shutdown and
+calls `verify_fixture_runtime.py`. Modes cover S2 nominal/stale/jump and S1
+avoid/clear/blocked/cutoff/replay/all-NaN behavior. They prove expected command
+sign or zero, valid/detected state, static TF, full canonical-topic isolation,
+fresh last-good snapshot for S2 faults, and no survivor processes.
 
 ## Next low-cost session
 

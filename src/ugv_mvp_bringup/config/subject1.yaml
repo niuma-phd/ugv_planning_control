@@ -12,7 +12,9 @@ map_odom_manager:
   ros__parameters:
     map_frame: map
     odom_frame: odom
+    base_frame: base_link
     auto_align_from_path: false
+    require_odom_invalid_for_update: false
     publish_rate_hz: 20.0
     initial.x: 0.0
     initial.y: 0.0
@@ -26,6 +28,7 @@ obstacle_detector_node:
     base_frame: base_link
     input_timeout_s: 0.30
     tf_timeout_s: 0.10
+    min_finite_points: 1
     roi_min_x: 0.20
     roi_max_x: 8.00
     roi_min_y: -3.00
@@ -63,4 +66,3 @@ local_avoidance_node:
     curvature_weight: 0.15
     clearance_weight: 0.70
     max_clearance_reward_m: 2.00
-

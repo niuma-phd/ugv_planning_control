@@ -20,6 +20,26 @@ Fixtures require an explicit `production_mode:=false`. They do not model real
 vehicle physics and may only prove topic wiring, command signs and fault
 handling.
 
+The preferred RDK entry point starts an isolated process group, verifies the
+result, shuts down only that group, and rejects survivors:
+
+```bash
+ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
+ROS_DOMAIN_ID=172 scripts/run_fixture_smoke.sh subject2_fault
+ROS_DOMAIN_ID=173 scripts/run_fixture_smoke.sh subject2_jump
+ROS_DOMAIN_ID=174 scripts/run_fixture_smoke.sh subject1
+ROS_DOMAIN_ID=175 scripts/run_fixture_smoke.sh subject1_none
+ROS_DOMAIN_ID=176 scripts/run_fixture_smoke.sh subject1_blocked
+ROS_DOMAIN_ID=177 scripts/run_fixture_smoke.sh subject1_fault
+ROS_DOMAIN_ID=178 scripts/run_fixture_smoke.sh subject1_replay
+ROS_DOMAIN_ID=179 scripts/run_fixture_smoke.sh subject1_invalid
+```
+
+Use a currently unused domain for every invocation. `subject1_none` is a
+non-empty finite cloud whose returns are outside the ROI; it is the valid
+clear-road case. The last three S1 modes prove fail-closed behavior for cloud
+cutoff, repeated timestamps, and all-NaN input.
+
 ### Subject 2
 
 Launch the isolated Subject 2 fixture graph:
@@ -65,6 +85,9 @@ avoidance command has positive `angular.z` (left turn). For focused
 detector/planner tests, repeat `none`, `front`, `left` and `blocked`; with the
 conservative candidate footprint, a centered front obstacle may correctly
 produce a zero command until measured vehicle dimensions replace it.
+Malformed, all-non-finite, replayed, TF-failed, or missing clouds do not
+publish a fresh empty scene; downstream input timeout requests control with a
+zero command.
 
 ## 3. Real sensors, actuators disconnected
 
@@ -115,7 +138,8 @@ Do not enable automatic GPS recovery in this phase.
 4. Tune z band on the real ground profile.
 5. Tune grid resolution and minimum points.
 6. Set footprint inflation from localization, TF and tracking errors.
-7. Tune trigger distance at the approved avoidance speed.
+7. Tune rollout horizon and the inflated footprint that define whether an
+   obstacle intersects the nominal forward sweep.
 8. Tune curvature sample range, then goal/heading/clearance weights.
 
 If no candidate is collision-free, stopping is the correct output.

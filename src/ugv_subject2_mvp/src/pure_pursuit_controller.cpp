@@ -131,7 +131,7 @@ double PurePursuitController::remaining_length(
       continue;
     }
 
-    double remaining = distance(projection, finish);
+    double remaining = cross_track + distance(projection, finish);
     for (std::size_t index = segment + 2U; index < path.size(); ++index) {
       remaining += distance(path[index - 1U], path[index]);
     }
@@ -188,7 +188,7 @@ ControlOutput PurePursuitController::compute(const ControlInput & input)
   output.target = target;
   output.target_index = target_index;
   output.valid = true;
-  if (squared_distance <= kMinimumSquaredDistance) {
+  if (squared_distance <= kMinimumSquaredDistance || target_x_base < 0.0) {
     return output;
   }
 

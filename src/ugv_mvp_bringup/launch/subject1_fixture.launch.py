@@ -1,8 +1,9 @@
 from launch import LaunchDescription
-from launch.actions import GroupAction, IncludeLaunchDescription
+from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, SetRemap
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
 
 
@@ -11,6 +12,7 @@ def _isolated_remaps():
         "/livox/lidar",
         "/livox_odometry_mapped",
         "/localization/odom",
+        "/localization/odom_valid",
         "/localization/map_odom_update",
         "/subject1/obstacles",
         "/subject1/obstacle_detected",
@@ -25,6 +27,11 @@ def _isolated_remaps():
 
 
 def generate_launch_description() -> LaunchDescription:
+    pointcloud_scenario = LaunchConfiguration("pointcloud_scenario")
+    pointcloud_stop_after_s = LaunchConfiguration("pointcloud_stop_after_s")
+    pointcloud_freeze_stamp_after_s = LaunchConfiguration(
+        "pointcloud_freeze_stamp_after_s"
+    )
     bringup_share = FindPackageShare("ugv_mvp_bringup")
     production = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -43,6 +50,11 @@ def generate_launch_description() -> LaunchDescription:
     )
     return LaunchDescription(
         [
+            DeclareLaunchArgument("pointcloud_scenario", default_value="right"),
+            DeclareLaunchArgument("pointcloud_stop_after_s", default_value="-1.0"),
+            DeclareLaunchArgument(
+                "pointcloud_freeze_stamp_after_s", default_value="-1.0"
+            ),
             GroupAction(
                 [
                     *_isolated_remaps(),
@@ -53,8 +65,15 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[
                             {
                                 "production_mode": False,
-                                "scenario": "right",
+                                "scenario": pointcloud_scenario,
                                 "frame_id": "livox_frame",
+                                "stop_after_s": ParameterValue(
+                                    pointcloud_stop_after_s, value_type=float
+                                ),
+                                "freeze_stamp_after_s": ParameterValue(
+                                    pointcloud_freeze_stamp_after_s,
+                                    value_type=float,
+                                ),
                             }
                         ],
                     ),

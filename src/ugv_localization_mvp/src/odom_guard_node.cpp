@@ -17,6 +17,7 @@
 #include <std_srvs/srv/trigger.hpp>
 
 #include "ugv_localization_mvp/odom_guard_core.hpp"
+#include "ugv_localization_mvp/transform_math.hpp"
 
 namespace ugv_localization_mvp
 {
@@ -66,10 +67,19 @@ public:
     trusted_topic_ = declare_parameter<std::string>(
       "trusted_topic", "/localization/trusted_odom");
     valid_topic_ = declare_parameter<std::string>("valid_topic", "/localization/odom_valid");
+    expected_frame_id_ = declare_parameter<std::string>("expected_frame_id", "odom");
+    expected_child_frame_id_ = declare_parameter<std::string>(
+      "expected_child_frame_id", "base_link");
     snapshot_directory_ = declare_parameter<std::string>("snapshot_directory", "/tmp/ugv_odom_guard");
     snapshot_basename_ = declare_parameter<std::string>("snapshot_basename", "last_good_odom");
     const double watchdog_rate_hz = declare_parameter<double>("watchdog_rate_hz", 20.0);
-    if (watchdog_rate_hz <= 0.0) {throw std::invalid_argument("watchdog_rate_hz must be positive");}
+    if (input_topic_.empty() || trusted_topic_.empty() || valid_topic_.empty() ||
+      expected_frame_id_.empty() || expected_child_frame_id_.empty() ||
+      snapshot_directory_.empty() || snapshot_basename_.empty() ||
+      !std::isfinite(watchdog_rate_hz) || watchdog_rate_hz <= 0.0)
+    {
+      throw std::invalid_argument("odom guard topics, frames, snapshot path, and rate must be valid");
+    }
     std::filesystem::create_directories(snapshot_directory_);
 
     trusted_pub_ = create_publisher<nav_msgs::msg::Odometry>(trusted_topic_, rclcpp::QoS(10));
@@ -130,6 +140,14 @@ private:
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lock(mutex_);
+    if (node_fault_latched_ || core_.latched()) {return;}
+    if (msg->header.frame_id != expected_frame_id_ ||
+      msg->child_frame_id != expected_child_frame_id_)
+    {
+      node_fault_latched_ = true;
+      handleFault(OdomFault::kFrameMismatch);
+      return;
+    }
     const OdomSample sample = sampleFrom(*msg);
     last_received_sample_ = sample;
     have_received_sample_ = true;
@@ -139,16 +157,27 @@ private:
       return;
     }
     last_good_msg_ = *msg;
+    last_good_msg_.pose.pose.orientation = normalizedQuaternion(
+      last_good_msg_.pose.pose.orientation);
     have_last_good_msg_ = true;
-    trusted_pub_->publish(*msg);
-    last_good_pub_->publish(*msg);
+    trusted_pub_->publish(last_good_msg_);
+    last_good_pub_->publish(last_good_msg_);
     publishValid(true);
   }
 
   void onWatchdog()
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (core_.latched() || !have_received_sample_) {return;}
+    if (node_fault_latched_ || core_.latched()) {
+      if (!snapshot_written_ && snapshot_attempts_ < kMaxSnapshotAttempts &&
+        have_last_good_msg_)
+      {
+        handleFault(
+          node_fault_latched_ ? OdomFault::kFrameMismatch : core_.latchedFault());
+      }
+      return;
+    }
+    if (!have_received_sample_) {return;}
     const double age_s = static_cast<double>(now().nanoseconds() - last_received_sample_.stamp_ns) / 1.0e9;
     if (age_s <= max_age_s_) {return;}
     const OdomFault fault = core_.evaluate(last_received_sample_, now().nanoseconds());
@@ -158,21 +187,23 @@ private:
   void handleFault(OdomFault fault)
   {
     publishValid(false);
-    if (snapshot_written_) {return;}
-    snapshot_written_ = true;
+    if (snapshot_written_ || snapshot_attempts_ >= kMaxSnapshotAttempts) {return;}
     if (!have_last_good_msg_) {
       RCLCPP_ERROR(get_logger(), "odometry fault latched (%s) before any trusted sample", toString(fault));
       return;
     }
+    ++snapshot_attempts_;
     try {
       writeSnapshot(last_good_msg_, fault);
+      snapshot_written_ = true;
       RCLCPP_ERROR(
         get_logger(), "odometry fault latched (%s); last-good snapshot saved in %s",
         toString(fault), snapshot_directory_.c_str());
     } catch (const std::exception & error) {
-      RCLCPP_FATAL(
-        get_logger(), "odometry fault latched (%s), but snapshot persistence failed: %s",
-        toString(fault), error.what());
+      RCLCPP_ERROR(
+        get_logger(),
+        "odometry fault latched (%s), but snapshot persistence attempt %u/%u failed: %s",
+        toString(fault), snapshot_attempts_, kMaxSnapshotAttempts, error.what());
     }
   }
 
@@ -211,9 +242,11 @@ private:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     core_.reset();
+    node_fault_latched_ = false;
     have_received_sample_ = false;
     have_last_good_msg_ = false;
     snapshot_written_ = false;
+    snapshot_attempts_ = 0U;
     publishValid(false);
     response->success = true;
     response->message = "fault reset; waiting for a new valid odometry sample";
@@ -229,6 +262,8 @@ private:
   std::string input_topic_;
   std::string trusted_topic_;
   std::string valid_topic_;
+  std::string expected_frame_id_;
+  std::string expected_child_frame_id_;
   std::string snapshot_directory_;
   std::string snapshot_basename_;
   std::mutex mutex_;
@@ -237,6 +272,9 @@ private:
   bool have_received_sample_{false};
   bool have_last_good_msg_{false};
   bool snapshot_written_{false};
+  static constexpr unsigned int kMaxSnapshotAttempts = 3U;
+  unsigned int snapshot_attempts_{0U};
+  bool node_fault_latched_{false};
   OdomSample last_received_sample_{};
   nav_msgs::msg::Odometry last_good_msg_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr trusted_pub_;

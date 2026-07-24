@@ -1,5 +1,7 @@
 #include <cmath>
 #include <cstdint>
+#include <limits>
+#include <stdexcept>
 
 #include <gtest/gtest.h>
 
@@ -73,6 +75,21 @@ TEST(OdomGuardCore, RejectsPoseJumpsAndBadQuaternion)
   EXPECT_EQ(quaternion.evaluate(bad, kSecond), OdomFault::kInvalidQuaternion);
 }
 
+TEST(OdomGuardCore, NormalizesAcceptedQuaternionScaleForYawComparison)
+{
+  OdomGuardSettings settings;
+  settings.max_yaw_jump_rad = 0.15;
+  OdomGuardCore guard(settings);
+  auto first = sampleAt(kSecond, 0.0, 0.40);
+  auto second = sampleAt(2 * kSecond, 0.0, 0.50);
+  for (auto * sample : {&first, &second}) {
+    sample->qz *= 1.04;
+    sample->qw *= 1.04;
+  }
+  EXPECT_EQ(guard.evaluate(first, kSecond), OdomFault::kNone);
+  EXPECT_EQ(guard.evaluate(second, 2 * kSecond), OdomFault::kNone);
+}
+
 TEST(OdomGuardCore, ResetRequiresFreshBaseline)
 {
   OdomGuardCore guard;
@@ -82,5 +99,40 @@ TEST(OdomGuardCore, ResetRequiresFreshBaseline)
   guard.reset();
   EXPECT_FALSE(guard.latched());
   EXPECT_EQ(guard.evaluate(sampleAt(10 * kSecond, 100.0), 10 * kSecond), OdomFault::kNone);
+}
+
+TEST(OdomGuardCore, RejectsNonFiniteMaximumAge)
+{
+  OdomGuardSettings settings;
+  settings.max_age_s = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(OdomGuardCore guard(settings), std::invalid_argument);
+}
+
+TEST(OdomGuardCore, RejectsNonFiniteFutureTolerance)
+{
+  OdomGuardSettings settings;
+  settings.future_tolerance_s = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(OdomGuardCore guard(settings), std::invalid_argument);
+}
+
+TEST(OdomGuardCore, RejectsNonFiniteQuaternionNormTolerance)
+{
+  OdomGuardSettings settings;
+  settings.quaternion_norm_tolerance = -std::numeric_limits<double>::infinity();
+  EXPECT_THROW(OdomGuardCore guard(settings), std::invalid_argument);
+}
+
+TEST(OdomGuardCore, RejectsNonFiniteTranslationJumpThreshold)
+{
+  OdomGuardSettings settings;
+  settings.max_translation_jump_m = std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW(OdomGuardCore guard(settings), std::invalid_argument);
+}
+
+TEST(OdomGuardCore, RejectsNonFiniteYawJumpThreshold)
+{
+  OdomGuardSettings settings;
+  settings.max_yaw_jump_rad = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(OdomGuardCore guard(settings), std::invalid_argument);
 }
 }  // namespace

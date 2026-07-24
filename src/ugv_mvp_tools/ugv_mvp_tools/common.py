@@ -63,7 +63,11 @@ def integrate_pose(
 def scenario_points(scenario: str) -> list[tuple[float, float, float, float]]:
     centers: list[tuple[float, float]]
     if scenario == "none":
-        centers = []
+        # A non-empty, finite cloud outside the configured ROI proves a
+        # genuinely observed clear scene rather than exercising invalid input.
+        centers = [(9.0, 0.0)]
+    elif scenario == "all_nan":
+        return [(math.nan, math.nan, math.nan, 100.0)] * 25
     elif scenario == "front":
         centers = [(2.0, 0.0)]
     elif scenario == "left":
@@ -82,4 +86,3 @@ def scenario_points(scenario: str) -> list[tuple[float, float, float, float]]:
             for dy in offsets:
                 result.append((center_x + dx, center_y + dy, 0.35, 100.0))
     return result
-

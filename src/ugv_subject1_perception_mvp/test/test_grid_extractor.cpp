@@ -45,3 +45,23 @@ TEST(GridExtractor, OccupiedCellOutsideCorridorDoesNotAssertDetection) {
 TEST(GridExtractor, RejectsInvalidConfiguration) {
   auto p=parameters(); p.cell_size=0.0; EXPECT_THROW({GridExtractor extractor(p);},std::invalid_argument);
 }
+TEST(GridExtractor, RejectsNanCellSize) {
+  auto p=parameters(); p.cell_size=std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW({GridExtractor extractor(p);},std::invalid_argument);
+}
+TEST(GridExtractor, RejectsInfiniteCellSize) {
+  auto p=parameters(); p.cell_size=std::numeric_limits<double>::infinity();
+  EXPECT_THROW({GridExtractor extractor(p);},std::invalid_argument);
+}
+TEST(GridExtractor, RejectsNanCorridorWidth) {
+  auto p=parameters(); p.corridor_half_width=std::numeric_limits<double>::quiet_NaN();
+  EXPECT_THROW({GridExtractor extractor(p);},std::invalid_argument);
+}
+TEST(GridExtractor, RejectsInfiniteCorridorBound) {
+  auto p=parameters(); p.corridor_max_x=std::numeric_limits<double>::infinity();
+  EXPECT_THROW({GridExtractor extractor(p);},std::invalid_argument);
+}
+TEST(GridExtractor, RejectsCellSizeThatOverflowsIntegerGridIndex) {
+  auto p=parameters(); p.cell_size=std::numeric_limits<double>::min();
+  EXPECT_THROW({GridExtractor extractor(p);},std::invalid_argument);
+}

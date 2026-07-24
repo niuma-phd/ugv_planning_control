@@ -14,7 +14,7 @@ the implementation dependency graph for this MVP.
 
 | Package | Immediate responsibility |
 |---|---|
-| `ugv_localization_mvp` | Convert raw LIO lidar pose to canonical base pose; publish `odom→base_link`; publish initial or updated `map→odom`; guard odom and persist the last trusted sample |
+| `ugv_localization_mvp` | Convert raw LIO lidar pose to canonical base pose; publish `odom→base_link`; publish initial or invalid-odom-gated `map→odom`; guard odom and persist the last trusted sample |
 | `ugv_subject2_mvp` | Follow a `nav_msgs/Path` with a compact Pure Pursuit controller and publish planar speed/yaw-rate commands |
 | `ugv_subject1_perception_mvp` | Convert Livox `PointCloud2` to `base_link`, apply finite/shape/ROI/self/height filters, and publish occupied body-frame obstacle cells |
 | `ugv_subject1_avoidance_mvp` | When obstacles are present, sample low-speed constant-curvature trajectories toward the next body-frame waypoint |
@@ -29,7 +29,7 @@ Avia LIO raw Odometry
   → lio_odom_adapter
   → /localization/odom + odom→base_link
 
-start-pose alignment from first path segment and first canonical odom
+start-pose alignment from first path segment and first trusted odom
   → map_odom_manager
 
 /localization/odom
@@ -48,10 +48,16 @@ available for deployments that disable automatic start alignment.
 
 The odom guard is intentionally small:
 
-1. Reject stale, non-finite, malformed or implausibly jumping odometry.
+1. Reject wrong-frame, stale, non-finite, malformed or implausibly jumping
+   odometry.
 2. Immediately stop forwarding trusted odom.
 3. Publish invalid status and persist the last trusted odom atomically.
 4. Keep the fault latched until an explicit reset after external recovery.
+
+During Subject 2 operation an explicit `map→odom` update is accepted only while
+`odom_valid=false`. The controller discards its cached odom on that transition,
+so a reset and a new trusted odom sample are required before motion resumes.
+This prevents an old trusted pose from being combined with a new map alignment.
 
 GPS-assisted LIO restart is not guessed in this first implementation. The
 future recovery session will consume the persisted sample and a confirmed
@@ -73,9 +79,12 @@ Horizon PointCloud2 + base_link→livox_frame
 ```
 
 The detector is always allowed to run. The avoidance controller only asserts
-`avoidance_active=true` when a relevant obstacle exists. When inactive it
-publishes a zero candidate; the other team's normal controller keeps control.
-This repository does not guess their arbitration or transport protocol.
+`avoidance_active=true` for a fresh obstacle intersecting the inflated nominal
+straight rollout. When inactive it publishes a zero candidate; the other
+team's normal controller keeps control. Invalid or replayed sensor/waypoint
+input is not treated as clear road: after the short receive timeout the planner
+asserts active with a zero command. This repository does not guess the other
+team's arbitration or transport protocol.
 
 The first detector uses fixed body-frame ROI and height limits instead of a
 large terrain-segmentation dependency. The first planner samples constant

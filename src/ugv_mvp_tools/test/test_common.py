@@ -23,10 +23,13 @@ def test_integrate_straight_and_turn() -> None:
 
 
 def test_scenarios_are_deterministic() -> None:
-    assert scenario_points("none") == []
+    clear_points = scenario_points("none")
+    assert len(clear_points) == 25
+    assert all(math.isfinite(value) for point in clear_points for value in point)
+    assert all(point[0] > 8.0 for point in clear_points)
     assert len(scenario_points("front")) == 25
     assert len(scenario_points("blocked")) == 125
+    assert all(math.isnan(value) for value in scenario_points("all_nan")[0][:3])
     with pytest.raises(ValueError):
         scenario_points("unknown")
     assert math.isfinite(scenario_points("left")[0][0])
-

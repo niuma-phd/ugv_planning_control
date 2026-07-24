@@ -16,6 +16,7 @@ enum class OdomFault
   kFutureStamp,
   kRepeatedStamp,
   kBackwardStamp,
+  kFrameMismatch,
   kTranslationJump,
   kYawJump,
 };

@@ -1,8 +1,10 @@
 #include "ugv_subject1_avoidance_mvp/local_avoidance.hpp"
 
 #include <chrono>
+#include <cstdint>
 #include <cmath>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -59,12 +61,20 @@ public:
             message->header.frame_id.c_str(), frame_id_.c_str());
           return;
         }
+        const auto stamp_ns = rclcpp::Time(message->header.stamp).nanoseconds();
+        if (stamp_ns <= 0 || (last_obstacle_stamp_ns_ && stamp_ns <= *last_obstacle_stamp_ns_)) {
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "ignoring obstacles with a zero, repeated, or backward timestamp");
+          return;
+        }
         obstacles_.clear();
         obstacles_.reserve(message->poses.size());
         for (const auto & pose : message->poses) {
           obstacles_.push_back({pose.position.x, pose.position.y});
         }
         obstacle_receive_time_ = std::chrono::steady_clock::now();
+        last_obstacle_stamp_ns_ = stamp_ns;
         have_obstacles_ = true;
       });
     waypoint_sub_ = create_subscription<geometry_msgs::msg::PointStamped>(
@@ -78,8 +88,16 @@ public:
             message->header.frame_id.c_str(), frame_id_.c_str());
           return;
         }
+        const auto stamp_ns = rclcpp::Time(message->header.stamp).nanoseconds();
+        if (stamp_ns <= 0 || (last_waypoint_stamp_ns_ && stamp_ns <= *last_waypoint_stamp_ns_)) {
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000,
+            "ignoring waypoint with a zero, repeated, or backward timestamp");
+          return;
+        }
         goal_ = {message->point.x, message->point.y};
         waypoint_receive_time_ = std::chrono::steady_clock::now();
+        last_waypoint_stamp_ns_ = stamp_ns;
         have_waypoint_ = true;
       });
 
@@ -90,8 +108,12 @@ public:
     trajectory_pub_ = create_publisher<nav_msgs::msg::Path>(
       "/subject1/selected_trajectory", rclcpp::QoS(1).reliable());
 
-    if (publish_rate_hz_ <= 0.0 || input_timeout_.count() <= 0.0) {
-      throw std::invalid_argument("publish_rate_hz and input_timeout_s must be positive");
+    if (frame_id_.empty() || !std::isfinite(publish_rate_hz_) ||
+      !std::isfinite(input_timeout_.count()) || publish_rate_hz_ <= 0.0 ||
+      input_timeout_.count() <= 0.0)
+    {
+      throw std::invalid_argument(
+              "frame_id and finite positive publish_rate_hz/input_timeout_s are required");
     }
     timer_ = create_wall_timer(
       std::chrono::duration<double>(1.0 / publish_rate_hz_),
@@ -141,6 +163,8 @@ private:
   bool have_waypoint_{false};
   std::chrono::steady_clock::time_point obstacle_receive_time_{};
   std::chrono::steady_clock::time_point waypoint_receive_time_{};
+  std::optional<std::int64_t> last_obstacle_stamp_ns_;
+  std::optional<std::int64_t> last_waypoint_stamp_ns_;
   std::chrono::duration<double> input_timeout_{0.30};
   double publish_rate_hz_{20.0};
   std::string frame_id_{"base_link"};

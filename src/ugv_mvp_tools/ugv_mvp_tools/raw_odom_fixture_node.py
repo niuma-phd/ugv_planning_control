@@ -80,7 +80,12 @@ class RawOdomFixtureNode(Node):
         msg.twist.twist.angular.z = float(
             self.get_parameter("yaw_rate_radps").value
         )
-        self.publisher.publish(msg)
+        try:
+            self.publisher.publish(msg)
+        except Exception:
+            if not rclpy.ok():
+                return
+            raise
 
 
 def main() -> None:

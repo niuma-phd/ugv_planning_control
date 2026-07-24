@@ -50,6 +50,19 @@ TEST(PurePursuitController, TurnsLeftAndRightWithCorrectSign)
   EXPECT_LT(right.angular_velocity, 0.0);
 }
 
+TEST(PurePursuitController, StopsWhenLookaheadTargetIsBehindVehicle)
+{
+  PurePursuitController controller;
+  auto input = make_input({{0.0, 0.0}, {1.0, 0.0}, {2.0, 0.0}});
+  input.pose.yaw = 3.14159265358979323846;
+
+  const auto output = controller.compute(input);
+
+  EXPECT_TRUE(output.valid);
+  EXPECT_DOUBLE_EQ(output.linear_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(output.angular_velocity, 0.0);
+}
+
 TEST(PurePursuitController, SlowsAndStopsAtEndpoint)
 {
   PurePursuitController controller;
@@ -75,6 +88,7 @@ TEST(PurePursuitController, DoesNotDeclareGoalWhenLaterallyFarFromEndpoint)
     make_input({{0.0, 0.0}, {1.0, 0.0}, {2.0, 0.0}}, 2.0, 1.0));
   EXPECT_TRUE(output.valid);
   EXPECT_FALSE(output.goal_reached);
+  EXPECT_GT(output.linear_velocity, 0.0);
 }
 
 TEST(PurePursuitController, InvalidAndMalformedInputsReturnZero)

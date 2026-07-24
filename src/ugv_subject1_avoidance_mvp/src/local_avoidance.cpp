@@ -11,6 +11,9 @@ namespace
 {
 constexpr double kEpsilon = 1e-9;
 constexpr double kPi = 3.14159265358979323846;
+constexpr int kMaxCurvatureSamples = 1001;
+constexpr double kMaxTrajectorySamples = 10000.0;
+constexpr double kMaxConfiguredRolloutWork = 200000.0;
 
 bool finite(const Point2 & point)
 {
@@ -37,6 +40,7 @@ bool frame_id_matches(const std::string & actual, const std::string & expected)
 LocalAvoidance::LocalAvoidance(const PlannerConfig & config)
 : config_(config)
 {
+  const double trajectory_samples = std::ceil(config_.horizon_m / config_.step_m);
   const bool finite_config =
     std::isfinite(config_.speed_mps) &&
     std::isfinite(config_.max_curvature) &&
@@ -51,8 +55,13 @@ LocalAvoidance::LocalAvoidance(const PlannerConfig & config)
     std::isfinite(config_.clearance_weight) &&
     std::isfinite(config_.max_clearance_reward_m);
   if (!finite_config || config_.speed_mps <= 0.0 || config_.max_curvature <= 0.0 ||
-    config_.curvature_samples < 2 || config_.horizon_m <= 0.0 || config_.step_m <= 0.0 ||
+    config_.curvature_samples < 2 || config_.curvature_samples > kMaxCurvatureSamples ||
+    config_.horizon_m <= 0.0 || config_.step_m <= 0.0 ||
     config_.footprint_half_length_m <= 0.0 || config_.footprint_half_width_m <= 0.0 ||
+    config_.step_m > 2.0 * (config_.footprint_half_length_m + config_.inflation_m) ||
+    !std::isfinite(trajectory_samples) || trajectory_samples > kMaxTrajectorySamples ||
+    trajectory_samples * static_cast<double>(config_.curvature_samples) >
+    kMaxConfiguredRolloutWork ||
     config_.inflation_m < 0.0 || config_.goal_distance_weight < 0.0 ||
     config_.heading_weight < 0.0 || config_.curvature_weight < 0.0 ||
     config_.clearance_weight < 0.0 || config_.max_clearance_reward_m < 0.0)
@@ -71,7 +80,15 @@ PlanResult LocalAvoidance::plan(
     result.active = true;
     return result;
   }
-  if (obstacles.empty()) {
+  const auto nominal_trajectory = rollout(0.0);
+  const bool relevant_obstacle = std::any_of(
+    nominal_trajectory.begin(), nominal_trajectory.end(),
+    [this, &obstacles](const Pose2 & pose) {
+      return std::any_of(
+        obstacles.begin(), obstacles.end(),
+        [this, &pose](const Point2 & obstacle) {return collides(pose, obstacle);});
+    });
+  if (!relevant_obstacle) {
     return result;
   }
 
@@ -117,7 +134,8 @@ std::vector<Pose2> LocalAvoidance::rollout(double curvature) const
 {
   std::vector<Pose2> trajectory;
   const int steps = static_cast<int>(std::ceil(config_.horizon_m / config_.step_m));
-  trajectory.reserve(static_cast<std::size_t>(steps));
+  trajectory.reserve(static_cast<std::size_t>(steps) + 1U);
+  trajectory.push_back(Pose2{});
   for (int index = 1; index <= steps; ++index) {
     const double distance = std::min(index * config_.step_m, config_.horizon_m);
     Pose2 pose;

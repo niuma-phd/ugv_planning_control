@@ -77,8 +77,13 @@ public:
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     input_timeout_s_ = declare_parameter<double>("input_timeout_s", 0.5);
     tf_timeout_s_ = declare_parameter<double>("tf_timeout_s", 0.1);
-    if (input_timeout_s_ <= 0.0 || tf_timeout_s_ < 0.0) {
-      throw std::invalid_argument("timeouts must be positive (TF may be zero)");
+    min_finite_points_ = declare_parameter<int>("min_finite_points", 1);
+    if (base_frame_.empty() || !std::isfinite(input_timeout_s_) ||
+      !std::isfinite(tf_timeout_s_) || input_timeout_s_ <= 0.0 ||
+      tf_timeout_s_ < 0.0 || min_finite_points_ <= 0)
+    {
+      throw std::invalid_argument(
+              "base_frame, finite timeouts, and a positive min_finite_points are required");
     }
 
     obstacles_pub_ = create_publisher<geometry_msgs::msg::PoseArray>(
@@ -139,21 +144,9 @@ private:
     return true;
   }
 
-  void publish_empty(const rclcpp::Time & stamp)
-  {
-    geometry_msgs::msg::PoseArray obstacles;
-    obstacles.header.stamp = stamp;
-    obstacles.header.frame_id = base_frame_;
-    obstacles_pub_->publish(obstacles);
-    std_msgs::msg::Bool detected;
-    detected.data = false;
-    detected_pub_->publish(detected);
-  }
-
   void reject_cloud(const std::string & reason)
   {
     RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Rejected point cloud: %s", reason.c_str());
-    publish_empty(now());
   }
 
   void on_cloud(const sensor_msgs::msg::PointCloud2::SharedPtr cloud)
@@ -167,6 +160,15 @@ private:
     }
     if (cloud->header.frame_id.empty()) {
       reject_cloud("empty source frame");
+      return;
+    }
+    const auto stamp_ns = rclcpp::Time(cloud->header.stamp).nanoseconds();
+    if (stamp_ns <= 0) {
+      reject_cloud("zero or negative source timestamp");
+      return;
+    }
+    if (last_valid_cloud_stamp_ns_ && stamp_ns <= *last_valid_cloud_stamp_ns_) {
+      reject_cloud("source timestamp did not advance");
       return;
     }
 
@@ -214,8 +216,17 @@ private:
           continue;
         }
         const auto transformed = tf * tf2::Vector3(px, py, pz);
+        if (!std::isfinite(transformed.x()) || !std::isfinite(transformed.y()) ||
+          !std::isfinite(transformed.z()))
+        {
+          continue;
+        }
         points.push_back({transformed.x(), transformed.y(), transformed.z()});
       }
+    }
+    if (points.size() < static_cast<std::size_t>(min_finite_points_)) {
+      reject_cloud("too few finite points");
+      return;
     }
 
     const auto result = extractor_.extract(points);
@@ -236,18 +247,23 @@ private:
     detected.data = result.obstacle_detected;
     detected_pub_->publish(detected);
     last_valid_cloud_ = now();
+    last_valid_cloud_stamp_ns_ = stamp_ns;
   }
 
   void on_timer()
   {
     if (!last_valid_cloud_ || (now() - *last_valid_cloud_).seconds() > input_timeout_s_) {
-      publish_empty(now());
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "no valid point cloud within %.3f s; withholding output so avoidance fails closed",
+        input_timeout_s_);
     }
   }
 
   std::string base_frame_;
   double input_timeout_s_{0.5};
   double tf_timeout_s_{0.1};
+  int min_finite_points_{1};
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
   GridExtractor extractor_;
@@ -256,6 +272,7 @@ private:
   rclcpp::Subscription<sensor_msgs::msg::PointCloud2>::SharedPtr cloud_sub_;
   rclcpp::TimerBase::SharedPtr timer_;
   std::optional<rclcpp::Time> last_valid_cloud_;
+  std::optional<std::int64_t> last_valid_cloud_stamp_ns_;
 };
 
 }  // namespace ugv_subject1_perception_mvp

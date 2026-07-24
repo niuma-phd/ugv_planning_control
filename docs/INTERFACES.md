@@ -24,11 +24,20 @@ computes:
 T_odom_base = T_raw_world_lidar × inverse(T_base_lidar)
 ```
 
+Canonical odom must use `header.frame_id=odom`,
+`child_frame_id=base_link`, and a strictly increasing non-zero stamp. A frame
+mismatch is a latched guard fault. In Subject 2,
+`/localization/map_odom_update` is accepted only after the guard has published
+`odom_valid=false`; fault reset plus a new trusted sample is required before
+the controller can move again. Subject 1's explicit/manual map alignment may
+accept an update without that guard because its body-frame avoidance command
+does not consume `map→odom`.
+
 ## Subject 2
 
 | Topic | Type | Meaning |
 |---|---|---|
-| `/subject2/path` | `nav_msgs/msg/Path` | ordered global waypoints; first MVP places the vehicle at its first point and along its first non-coincident segment |
+| `/subject2/path` | `nav_msgs/msg/Path` | ordered global waypoints; reliable QoS, volatile subscriber; first MVP places the vehicle at its first point and along its first non-coincident segment |
 | `/control/cmd_vel` | `geometry_msgs/msg/TwistStamped` | final MVP command; `linear.x` m/s, `angular.z` rad/s |
 | `/subject2/target_point` | `geometry_msgs/msg/PointStamped` | selected Pure Pursuit lookahead point for tuning |
 
@@ -48,6 +57,16 @@ If path or trusted odom is stale/invalid, output is zero.
 
 The other team's control handoff consumes `avoidance_active` and
 `avoid_cmd_vel`. Its arbitration remains outside this repository.
+
+Point clouds and both S1 planner inputs require non-zero, strictly increasing
+source stamps. Devices do not need a shared absolute epoch for the receive-time
+timeout, but repeated/backward stamps do not refresh it. A cloud must also
+contain at least `min_finite_points` finite transformed points. Invalid or
+TF-failed input is withheld so the avoidance timeout produces `active=true`
+and zero command; only a successfully decoded finite cloud may publish a clear
+scene. `obstacle_detected` is diagnostic. The avoidance package independently
+defines control relevance by collision with its inflated nominal straight
+rollout.
 
 The pinned Livox driver uses `livox_frame` in both Horizon and Avia
 PointCloud2/IMU headers. Bringup therefore publishes the approved

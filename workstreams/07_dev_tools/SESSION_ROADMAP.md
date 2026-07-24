@@ -13,7 +13,8 @@ Nodes refuse to start unless `production_mode:=false` is explicitly set:
 
 - `path_fixture_node`: line/left/right `nav_msgs/Path`;
 - `raw_odom_fixture_node`: scripted raw LIO-style odometry, optional stop/jump;
-- `pointcloud_fixture_node`: deterministic body-frame obstacle clusters.
+- `pointcloud_fixture_node`: deterministic lidar-frame obstacle/clear/invalid
+  clouds, optional cutoff, and optional repeated-stamp injection.
 - `next_waypoint_fixture_node`: deterministic body-frame next waypoint.
 
 ## Quick examples
@@ -34,7 +35,6 @@ ros2 run ugv_mvp_tools next_waypoint_fixture_node --ros-args \
 
 ## Next tasks for a low-cost session
 
-1. Add a fixture manifest containing exact expected command signs.
-2. Add launch tests after the production packages stabilize.
-3. Add CSV capture of `/control/cmd_vel` and `/subject1/avoid_cmd_vel`.
-4. Keep every new fixture deterministic and production-refusing.
+1. Add launch tests after the production packages stabilize.
+2. Add CSV capture of `/control/cmd_vel` and `/subject1/avoid_cmd_vel`.
+3. Keep every new fixture deterministic and production-refusing.

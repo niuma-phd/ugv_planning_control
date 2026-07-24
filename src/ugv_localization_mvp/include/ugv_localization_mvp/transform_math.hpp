@@ -1,6 +1,7 @@
 #pragma once
 
 #include <geometry_msgs/msg/pose.hpp>
+#include <geometry_msgs/msg/quaternion.hpp>
 #include <geometry_msgs/msg/transform.hpp>
 
 namespace ugv_localization_mvp
@@ -8,6 +9,8 @@ namespace ugv_localization_mvp
 
 bool finiteAndNormalized(const geometry_msgs::msg::Pose & pose, double tolerance = 0.05);
 bool finiteAndNormalized(const geometry_msgs::msg::Transform & transform, double tolerance = 0.05);
+geometry_msgs::msg::Quaternion normalizedQuaternion(
+  const geometry_msgs::msg::Quaternion & quaternion);
 geometry_msgs::msg::Transform makeTransform(
   double x, double y, double z, double roll, double pitch, double yaw);
 geometry_msgs::msg::Transform odomBaseFromRawLidar(

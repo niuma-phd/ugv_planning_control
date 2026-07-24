@@ -25,7 +25,10 @@
 - `/subject1/avoid_cmd_vel`，`geometry_msgs/msg/TwistStamped`：只使用 `linear.x` 和 `angular.z`。
 - `/subject1/selected_trajectory`，`nav_msgs/msg/Path`：调试用的选中 rollout。
 
-当前节点按本机**接收时间**检查新鲜度，不依赖不同设备间尚未验证的时钟同步。
+当前节点按本机**接收时间**检查超时，不依赖不同设备间尚未验证的绝对时钟同步；
+但两路消息的源时间戳都必须非零且严格递增，重复/倒退时间戳不会刷新接收时间。
+“相关障碍”由障碍是否与膨胀后的直线 nominal rollout 碰撞定义，避免另设一套
+trigger corridor 与碰撞几何漂移。
 
 ## 3. 算法与参数
 
@@ -64,7 +67,7 @@ omega = v*k
 2. **低速安全值**：架空或断开执行器验证符号，再将 `speed_mps` 从 0.10 m/s 起步。
 3. **几何可达性**：按车辆最小转弯半径设置 `max_curvature <= 1/R_min`；确认正角速度左转。
 4. **碰撞余量**：从 `inflation_m=0.30` 开始，在静态纸箱旁逐步减小，绝不先减 footprint。
-5. **视距与离散度**：保证 `horizon_m` 能看到绕行出口；CPU 足够时增加采样数，防漏碰时减小 `step_m`。
+5. **视距与离散度**：保证 `horizon_m` 能看到绕行出口；CPU 足够时增加采样数，防漏碰时减小 `step_m`。代码要求 `step_m` 不得大于两倍纵向膨胀半长，并包含当前位姿采样。
 6. **先目标后平滑**：先调 `goal_distance_weight`/`heading_weight` 能绕回航点，再增加 `curvature_weight` 抑制大转弯。
 7. **最后调净空**：逐步增加 `clearance_weight`，若车辆为追求净空偏离目标过多则回退。
 8. 每次只改一个参数，保存 rosbag、参数文件、选中轨迹与结果。

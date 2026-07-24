@@ -35,7 +35,8 @@ ament_target_dependencies(lio_odom_adapter_node rclcpp nav_msgs tf2 tf2_ros tf2_
 
 add_executable(map_odom_manager_node src/map_odom_manager_node.cpp)
 target_link_libraries(map_odom_manager_node ${PROJECT_NAME}_core)
-ament_target_dependencies(map_odom_manager_node rclcpp nav_msgs geometry_msgs tf2 tf2_ros tf2_geometry_msgs)
+ament_target_dependencies(
+  map_odom_manager_node rclcpp nav_msgs geometry_msgs std_msgs tf2 tf2_ros tf2_geometry_msgs)
 
 add_executable(odom_guard_node src/odom_guard_node.cpp)
 target_link_libraries(odom_guard_node ${PROJECT_NAME}_core)

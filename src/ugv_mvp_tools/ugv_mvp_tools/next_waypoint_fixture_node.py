@@ -29,7 +29,12 @@ class NextWaypointFixtureNode(Node):
         message.header.frame_id = str(self.get_parameter("frame_id").value)
         message.point.x = float(self.get_parameter("x_m").value)
         message.point.y = float(self.get_parameter("y_m").value)
-        self.publisher.publish(message)
+        try:
+            self.publisher.publish(message)
+        except Exception:
+            if not rclpy.ok():
+                return
+            raise
 
 
 def main() -> None:

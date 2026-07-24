@@ -67,6 +67,14 @@ public:
     if (!std::isfinite(control_rate_hz_) || control_rate_hz_ <= 0.0) {
       throw std::invalid_argument("control_rate_hz must be positive");
     }
+    if (base_frame_.empty() || !std::isfinite(odom_timeout_sec_) ||
+      !std::isfinite(path_timeout_sec_) || !std::isfinite(valid_timeout_sec_) ||
+      !std::isfinite(transform_timeout_sec_) || odom_timeout_sec_ <= 0.0 ||
+      path_timeout_sec_ <= 0.0 || valid_timeout_sec_ <= 0.0 ||
+      transform_timeout_sec_ < 0.0)
+    {
+      throw std::invalid_argument("base_frame and finite positive input timeouts are required");
+    }
 
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/localization/trusted_odom", rclcpp::QoS(10).reliable(),
@@ -78,11 +86,15 @@ public:
       "/localization/odom_valid", rclcpp::QoS(10).reliable(),
       [this](std_msgs::msg::Bool::ConstSharedPtr message) {
         odom_valid_ = message->data;
+        if (!odom_valid_) {
+          odom_.reset();
+          controller_.reset_progress();
+        }
         valid_received_ = true;
         valid_received_at_ = std::chrono::steady_clock::now();
       });
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
-      "/subject2/path", rclcpp::QoS(1).reliable().transient_local(),
+      "/subject2/path", rclcpp::QoS(1).reliable(),
       [this](nav_msgs::msg::Path::ConstSharedPtr message) {
         const bool geometry_changed = !path_ || !same_path_geometry(*path_, *message);
         path_ = std::move(message);
@@ -152,7 +164,9 @@ private:
     }
 
     path_frame = path_->header.frame_id;
-    if (path_frame.empty() || odom_->header.frame_id.empty()) {
+    if (path_frame.empty() || odom_->header.frame_id != "odom" ||
+      odom_->child_frame_id != base_frame_)
+    {
       return false;
     }
 

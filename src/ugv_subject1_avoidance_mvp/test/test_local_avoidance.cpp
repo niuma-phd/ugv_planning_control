@@ -91,14 +91,43 @@ TEST(LocalAvoidance, NonFiniteConfigurationIsRejected)
   EXPECT_THROW(LocalAvoidance planner(config), std::invalid_argument);
 }
 
-TEST(LocalAvoidance, SelectsStraightTrajectoryWhenObstacleDoesNotBlock)
+TEST(LocalAvoidance, RejectsCollisionSamplingWithLongitudinalGaps)
+{
+  auto config = test_config();
+  config.step_m =
+    2.0 * (config.footprint_half_length_m + config.inflation_m) + 0.01;
+  EXPECT_THROW(LocalAvoidance planner(config), std::invalid_argument);
+}
+
+TEST(LocalAvoidance, RejectsUnboundedConfiguredRolloutWork)
+{
+  auto huge_horizon = test_config();
+  huge_horizon.horizon_m = std::numeric_limits<double>::max();
+  EXPECT_THROW(LocalAvoidance planner(huge_horizon), std::invalid_argument);
+
+  auto too_many_curvatures = test_config();
+  too_many_curvatures.curvature_samples = 1002;
+  EXPECT_THROW(LocalAvoidance planner(too_many_curvatures), std::invalid_argument);
+}
+
+TEST(LocalAvoidance, DoesNotTakeControlForObstacleOutsideNominalSweep)
 {
   LocalAvoidance planner(test_config());
   const auto result = planner.plan({{1.5, 1.4}}, {4.0, 0.0}, true);
-  ASSERT_TRUE(result.active);
-  ASSERT_TRUE(result.has_safe_trajectory);
-  EXPECT_NEAR(result.curvature, 0.0, 1e-9);
-  EXPECT_NEAR(result.yaw_rate_radps, 0.0, 1e-9);
+  EXPECT_FALSE(result.active);
+  EXPECT_FALSE(result.has_safe_trajectory);
+  EXPECT_DOUBLE_EQ(result.speed_mps, 0.0);
+}
+
+TEST(LocalAvoidance, NominalSweepDefinesRelevanceWithoutASecondCorridor)
+{
+  auto config = test_config();
+  config.footprint_half_length_m = 1.0;
+  config.footprint_half_width_m = 0.6;
+  config.inflation_m = 0.3;
+  LocalAvoidance planner(config);
+  const auto result = planner.plan({{4.2, 0.85}}, {5.0, 0.0}, true);
+  EXPECT_TRUE(result.active);
 }
 
 TEST(LocalAvoidance, GoesLeftAroundObstacleOnRight)

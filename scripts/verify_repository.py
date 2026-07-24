@@ -86,9 +86,39 @@ def check_roadmaps() -> None:
         "workstreams/04_subject1_avoidance/SESSION_ROADMAP.md",
         "workstreams/05_gps_lio_recovery/SESSION_ROADMAP.md",
         "workstreams/06_rdk_test_tuning/SESSION_ROADMAP.md",
+        "workstreams/07_dev_tools/SESSION_ROADMAP.md",
+        "workstreams/08_bringup/SESSION_ROADMAP.md",
     ]
     for path in expected:
         require(path)
+
+
+def check_yaml_duplicate_keys() -> None:
+    key_pattern = re.compile(r"^(\s*)([A-Za-z0-9_.-]+):")
+    for path in sorted(ROOT.rglob("*.yaml")):
+        scopes: list[tuple[int, str]] = []
+        seen: dict[tuple[str, ...], set[str]] = {}
+        for line_number, line in enumerate(
+            path.read_text(encoding="utf-8").splitlines(), start=1
+        ):
+            match = key_pattern.match(line)
+            if not match:
+                continue
+            indentation = len(match.group(1).replace("\t", "        "))
+            key = match.group(2)
+            while scopes and indentation <= scopes[-1][0]:
+                scopes.pop()
+            scope = tuple(parent_key for _, parent_key in scopes)
+            keys = seen.setdefault(scope, set())
+            if key in keys:
+                ERRORS.append(
+                    f"{path.relative_to(ROOT)}:{line_number}: duplicate YAML key "
+                    f"{'.'.join((*scope, key))}"
+                )
+            keys.add(key)
+            remainder = line[match.end() :].split("#", 1)[0].strip()
+            if not remainder:
+                scopes.append((indentation, key))
 
 
 def main() -> int:
@@ -106,6 +136,7 @@ def main() -> int:
     check_markdown_links()
     check_large_or_runtime_files()
     check_roadmaps()
+    check_yaml_duplicate_keys()
 
     print(f"PACKAGE_XML_OK {len(list((ROOT / 'src').glob('*/package.xml')))}")
     print(f"MARKDOWN_OK {len(list(ROOT.rglob('*.md')))}")
@@ -120,4 +151,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

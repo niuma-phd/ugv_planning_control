@@ -9,7 +9,10 @@ Turn Horizon `PointCloud2` into occupied 2-D cell centers in `base_link` and a c
 - Transform finite points using TF at the cloud timestamp.
 - Apply ROI, body self-filter, height band, and grid count threshold in `base_link`.
 - Publish `/subject1/obstacles` and `/subject1/obstacle_detected`.
-- Bad input/TF fails closed; missing valid input publishes false and an empty array after timeout.
+- Bad input/TF fails closed by withholding output; repeated/backward stamps and
+  clouds with too few finite points do not refresh validity. The avoidance
+  input timeout then requests active zero. Only a successfully decoded cloud
+  may publish false with an empty obstacle array.
 
 ## Real Horizon bag tuning
 1. Record stationary and slow bags with `/livox/lidar`, `/tf`, `/tf_static`, measured obstacles, clear-road segments, driver config, and bag SHA-256.

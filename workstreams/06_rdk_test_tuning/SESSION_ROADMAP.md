@@ -33,7 +33,7 @@ files.
 
 1. Verify TF axes and command signs with actuators disconnected.
 2. Keep nominal speed at the approved first-test speed.
-3. Tune `lookahead_distance_m`:
+3. Tune `lookahead_distance`:
    - oscillation: increase;
    - cuts corners/slow convergence: decrease.
 4. Tune yaw-rate and curvature limits from measured vehicle capability.
@@ -59,4 +59,3 @@ files.
 - command/odom/obstacle CSV;
 - operator, location, maximum speed and result;
 - every failed run, not only successful runs.
-

@@ -29,6 +29,7 @@ const char * toString(OdomFault fault)
     case OdomFault::kFutureStamp: return "future_stamp";
     case OdomFault::kRepeatedStamp: return "repeated_stamp";
     case OdomFault::kBackwardStamp: return "backward_stamp";
+    case OdomFault::kFrameMismatch: return "frame_mismatch";
     case OdomFault::kTranslationJump: return "translation_jump";
     case OdomFault::kYawJump: return "yaw_jump";
   }
@@ -37,7 +38,10 @@ const char * toString(OdomFault fault)
 
 OdomGuardCore::OdomGuardCore(OdomGuardSettings settings) : settings_(settings)
 {
-  if (settings_.max_age_s < 0.0 || settings_.future_tolerance_s < 0.0 ||
+  if (!finite(settings_.max_age_s) || !finite(settings_.future_tolerance_s) ||
+    !finite(settings_.quaternion_norm_tolerance) ||
+    !finite(settings_.max_translation_jump_m) || !finite(settings_.max_yaw_jump_rad) ||
+    settings_.max_age_s < 0.0 || settings_.future_tolerance_s < 0.0 ||
     settings_.quaternion_norm_tolerance < 0.0 || settings_.max_translation_jump_m < 0.0 ||
     settings_.max_yaw_jump_rad < 0.0)
   {
@@ -93,8 +97,15 @@ OdomFault OdomGuardCore::check(const OdomSample & sample, std::int64_t now_ns) c
 
 double OdomGuardCore::yaw(const OdomSample & sample)
 {
-  const double siny_cosp = 2.0 * (sample.qw * sample.qz + sample.qx * sample.qy);
-  const double cosy_cosp = 1.0 - 2.0 * (sample.qy * sample.qy + sample.qz * sample.qz);
+  const double norm = std::sqrt(
+    sample.qx * sample.qx + sample.qy * sample.qy +
+    sample.qz * sample.qz + sample.qw * sample.qw);
+  const double qx = sample.qx / norm;
+  const double qy = sample.qy / norm;
+  const double qz = sample.qz / norm;
+  const double qw = sample.qw / norm;
+  const double siny_cosp = 2.0 * (qw * qz + qx * qy);
+  const double cosy_cosp = 1.0 - 2.0 * (qy * qy + qz * qz);
   return std::atan2(siny_cosp, cosy_cosp);
 }
 

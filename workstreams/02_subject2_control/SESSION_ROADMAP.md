@@ -8,7 +8,7 @@
 - 通过 TF 把 odom 当前位姿转换到 Path 坐标系；`map→odom` 由定位包负责。
 - 以 20 Hz 发布 `/control/cmd_vel`，仅使用 `linear.x` 与 `angular.z`。
 - 发布 `/subject2/target_point` 供 RViz 和调参观察。
-- 采用路径最近进度、固定/速度缩放前视、`κ=2y/L²`、曲率/速度/角速度限幅和终点减速。
+- 采用路径最近进度、固定/速度缩放前视、`κ=2y/L²`、曲率/速度/角速度限幅和终点减速；前视点落在车后时保持零命令。
 - odom/path/valid 超时、invalid、空路径、非有限数或 TF 失败时，每个控制周期持续发布零命令。
 
 本包刻意不实现 GPS、LIO 重启、上游 gateway、车辆执行器适配或复杂状态机。
@@ -28,7 +28,7 @@ GPS/LIO 恢复接口，不得把仿真或 bag 回放称为真车验证。
 
 ## 调参顺序（先低速直线，再弯道）
 
-1. **安全限幅**：从 `nominal_speed=0.2`、`max_speed=0.3`、
+1. **安全限幅**：从 `nominal_speed=0.1`、`max_speed=0.2`、
    `max_yaw_rate=0.3` 开始；按车辆团队给出的硬限制逐步增加。
 2. **固定前视**：先令 `use_speed_scaled_lookahead=false`，在直线与缓弯调
    `lookahead_distance`。振荡则增大，切弯过慢则减小。

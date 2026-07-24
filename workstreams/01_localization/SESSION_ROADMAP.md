@@ -20,7 +20,7 @@ implementation deliberately avoids Nav2, PCL and custom messages.
   -> odom_guard_node
   -> /localization/trusted_odom + /localization/odom_valid
 
-/subject2/path + first /localization/odom
+/subject2/path + first /localization/trusted_odom
   -> map_odom_manager_node
   -> map -> odom TF
 ```
@@ -45,6 +45,9 @@ The map manager has two modes:
    `T_map_odom=T_map_base_start*inverse(T_odom_base_first)`, and latches it.
 
 A valid `/localization/map_odom_update` overrides either mode and is latched.
+Subject 2 sets `require_odom_invalid_for_update=true`, so an update is accepted
+only after the guard has published false. Subject 1 manual alignment sets it
+false because body-frame avoidance does not consume this transform.
 
 The guard is fail-closed. Non-finite data, malformed quaternion, stale/future,
 repeated/backward stamp, or a single-frame position/yaw jump immediately latches
@@ -83,11 +86,12 @@ twist without implementing and testing the rigid-body twist transform.
 
 | Parameter | Default | Meaning |
 |---|---:|---|
-| `map_frame`, `odom_frame` | `map`, `odom` | canonical frames |
+| `map_frame`, `odom_frame`, `base_frame` | `map`, `odom`, `base_link` | canonical frames |
 | `initial.{x,y,z,roll,pitch,yaw}` | `0` | explicit initial transform |
 | `auto_align_from_path` | `false` | enable one-shot path/odom alignment |
 | `path_topic` | `/subject2/path` | only declared in auto mode |
-| `odom_topic` | `/localization/odom` | only declared in auto mode |
+| `odom_topic` | `/localization/trusted_odom` | only declared in auto mode |
+| `require_odom_invalid_for_update` | follows `auto_align_from_path` | require explicit invalid state before map update |
 | `path_segment_epsilon_m` | `0.05` | ignore coincident leading points |
 | `publish_rate_hz` | `20` | TF refresh rate |
 
@@ -101,6 +105,7 @@ twist without implementing and testing the rigid-body twist transform.
 | `max_translation_jump_m` | `1.50` | set above maximum healthy one-frame displacement |
 | `max_yaw_jump_rad` | `0.80` | set above maximum healthy one-frame yaw change |
 | `watchdog_rate_hz` | `20` | should be several times odom rate |
+| `expected_frame_id`, `expected_child_frame_id` | `odom`, `base_link` | exact canonical frame contract |
 | `snapshot_directory` | `/tmp/ugv_odom_guard` | use persistent writable RDK path in bringup |
 | `snapshot_basename` | `last_good_odom` | fixed replacement target |
 

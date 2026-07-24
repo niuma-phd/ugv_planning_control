@@ -55,7 +55,12 @@ class PathFixtureNode(Node):
             pose.pose.orientation.z = math.sin(0.5 * yaw_rad)
             pose.pose.orientation.w = math.cos(0.5 * yaw_rad)
             path.poses.append(pose)
-        self.publisher.publish(path)
+        try:
+            self.publisher.publish(path)
+        except Exception:
+            if not rclpy.ok():
+                return
+            raise
 
 
 def main() -> None:

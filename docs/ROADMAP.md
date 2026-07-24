@@ -16,7 +16,7 @@ test passes.
 1. **Localization**
    - raw LIO lidar-pose to canonical base-pose adapter;
    - TF publishing;
-   - start-aligned/updateable `map→odom`;
+   - start-aligned and invalid-odom-gated `map→odom`;
    - odom guard and last-trusted persistence.
 2. **S2 control**
    - path cache and nearest-progress tracking;

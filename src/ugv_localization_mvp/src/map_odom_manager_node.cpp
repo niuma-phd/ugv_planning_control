@@ -11,6 +11,7 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/bool.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
 #include "ugv_localization_mvp/transform_math.hpp"
@@ -25,11 +26,18 @@ public:
   {
     map_frame_ = declare_parameter<std::string>("map_frame", "map");
     odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
+    base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     auto_align_ = declare_parameter<bool>("auto_align_from_path", false);
+    require_odom_invalid_for_update_ = declare_parameter<bool>(
+      "require_odom_invalid_for_update", auto_align_);
     path_segment_epsilon_m_ = declare_parameter<double>("path_segment_epsilon_m", 0.05);
     const double publish_rate_hz = declare_parameter<double>("publish_rate_hz", 20.0);
-    if (publish_rate_hz <= 0.0 || path_segment_epsilon_m_ <= 0.0) {
-      throw std::invalid_argument("publish_rate_hz and path_segment_epsilon_m must be positive");
+    if (map_frame_.empty() || odom_frame_.empty() || base_frame_.empty() ||
+      map_frame_ == odom_frame_ || map_frame_ == base_frame_ || odom_frame_ == base_frame_ ||
+      !std::isfinite(publish_rate_hz) || !std::isfinite(path_segment_epsilon_m_) ||
+      publish_rate_hz <= 0.0 || path_segment_epsilon_m_ <= 0.0)
+    {
+      throw std::invalid_argument("map/odom/base frames and finite positive rates are required");
     }
 
     transform_.header.frame_id = map_frame_;
@@ -41,18 +49,24 @@ public:
       declare_parameter<double>("initial.roll", 0.0),
       declare_parameter<double>("initial.pitch", 0.0),
       declare_parameter<double>("initial.yaw", 0.0));
+    if (!finiteAndNormalized(transform_.transform)) {
+      throw std::invalid_argument("initial map->odom transform must be finite and normalized");
+    }
     transform_ready_ = !auto_align_;
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
     update_sub_ = create_subscription<geometry_msgs::msg::TransformStamped>(
       "/localization/map_odom_update", rclcpp::QoS(10),
       std::bind(&MapOdomManagerNode::onUpdate, this, std::placeholders::_1));
+    odom_valid_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/localization/odom_valid", rclcpp::QoS(1).reliable().transient_local(),
+      std::bind(&MapOdomManagerNode::onOdomValid, this, std::placeholders::_1));
     if (auto_align_) {
       path_sub_ = create_subscription<nav_msgs::msg::Path>(
-        declare_parameter<std::string>("path_topic", "/subject2/path"), rclcpp::QoS(1).transient_local(),
+        declare_parameter<std::string>("path_topic", "/subject2/path"), rclcpp::QoS(1).reliable(),
         std::bind(&MapOdomManagerNode::onPath, this, std::placeholders::_1));
       odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        declare_parameter<std::string>("odom_topic", "/localization/odom"), rclcpp::QoS(10),
+        declare_parameter<std::string>("odom_topic", "/localization/trusted_odom"), rclcpp::QoS(10),
         std::bind(&MapOdomManagerNode::onOdom, this, std::placeholders::_1));
       RCLCPP_WARN(get_logger(), "waiting to latch map->odom from path start and first canonical odom");
     }
@@ -89,6 +103,8 @@ private:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     if (auto_alignment_latched_ || msg->header.frame_id != odom_frame_ ||
+      msg->child_frame_id != base_frame_ ||
+      rclcpp::Time(msg->header.stamp).nanoseconds() <= 0 ||
       !finiteAndNormalized(msg->pose.pose)) {return;}
     if (!first_odom_pose_) {first_odom_pose_ = msg->pose.pose;}
     tryAutoAlign();
@@ -115,10 +131,24 @@ private:
       return;
     }
     std::lock_guard<std::mutex> lock(mutex_);
+    if (require_odom_invalid_for_update_ && (!odom_valid_received_ || odom_valid_)) {
+      RCLCPP_ERROR(
+        get_logger(),
+        "rejected map_odom_update; an explicit odom_valid=false gate is required");
+      return;
+    }
     transform_.transform = msg->transform;
+    transform_.transform.rotation = normalizedQuaternion(msg->transform.rotation);
     transform_ready_ = true;
     auto_alignment_latched_ = true;
     RCLCPP_INFO(get_logger(), "accepted explicit map->odom update");
+  }
+
+  void onOdomValid(const std_msgs::msg::Bool::SharedPtr msg)
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    odom_valid_ = msg->data;
+    odom_valid_received_ = true;
   }
 
   void publish()
@@ -131,9 +161,13 @@ private:
 
   std::string map_frame_;
   std::string odom_frame_;
+  std::string base_frame_;
   bool auto_align_{false};
+  bool require_odom_invalid_for_update_{false};
   bool transform_ready_{false};
   bool auto_alignment_latched_{false};
+  bool odom_valid_{false};
+  bool odom_valid_received_{false};
   double path_segment_epsilon_m_{0.05};
   std::mutex mutex_;
   geometry_msgs::msg::TransformStamped transform_;
@@ -141,6 +175,7 @@ private:
   std::optional<geometry_msgs::msg::Pose> first_odom_pose_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
   rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr update_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr odom_valid_sub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::TimerBase::SharedPtr timer_;

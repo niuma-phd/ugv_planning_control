@@ -22,8 +22,8 @@ struct Pose2D
 
 struct ControllerConfig
 {
-  double nominal_speed{0.8};
-  double max_speed{1.0};
+  double nominal_speed{0.10};
+  double max_speed{0.20};
   double max_yaw_rate{0.8};
   double max_curvature{1.5};
   double lookahead_distance{1.0};

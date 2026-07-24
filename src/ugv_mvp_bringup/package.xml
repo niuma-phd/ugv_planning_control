@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>ugv_mvp_bringup</name>
+  <version>0.1.0</version>
+  <description>Launch and conservative parameter profiles for the UGV MVP.</description>
+  <maintainer email="xcxc@nuaa.com">xcc</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>ugv_localization_mvp</exec_depend>
+  <exec_depend>ugv_subject2_mvp</exec_depend>
+  <exec_depend>ugv_subject1_perception_mvp</exec_depend>
+  <exec_depend>ugv_subject1_avoidance_mvp</exec_depend>
+  <exec_depend>ugv_mvp_tools</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
+

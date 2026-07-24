@@ -3,7 +3,7 @@
   <name>ugv_subject2_mvp</name>
   <version>0.1.0</version>
   <description>Minimal fail-closed Pure Pursuit waypoint controller for UGV subject 2.</description>
-  <maintainer email="ugv-team@example.com">UGV Team</maintainer>
+  <maintainer email="xcxc@nuaa.com">xcc</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

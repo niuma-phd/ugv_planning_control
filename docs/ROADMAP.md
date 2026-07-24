@@ -16,7 +16,7 @@ test passes.
 1. **Localization**
    - raw LIO lidar-pose to canonical base-pose adapter;
    - TF publishing;
-   - identity/updateable `map→odom`;
+   - start-aligned/updateable `map→odom`;
    - odom guard and last-trusted persistence.
 2. **S2 control**
    - path cache and nearest-progress tracking;
@@ -69,4 +69,3 @@ Horizon TF + point cloud detector
 
 Parallel sessions may implement disjoint packages, but integration merges and
 RDK checks follow this order.
-

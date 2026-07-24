@@ -81,7 +81,7 @@ commands. Save bags outside Git and commit a SHA-256 manifest.
 ## 4. Subject 2 parameter order
 
 1. **Extrinsics and alignment first.** Do not tune control around a wrong TF.
-2. Set `nominal_speed_mps` to the approved first-test speed.
+2. Set `nominal_speed` to the approved first-test speed.
 3. Start with a fixed lookahead:
    - left/right oscillation: increase lookahead;
    - slow convergence or excessive corner cutting: decrease lookahead.
@@ -115,4 +115,3 @@ If no candidate is collision-free, stopping is the correct output.
 - Subject 2 before Subject 1;
 - soft obstacles only;
 - no automatic unattended test.
-

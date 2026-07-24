@@ -29,7 +29,7 @@ Avia LIO raw Odometry
   → lio_odom_adapter
   → /localization/odom + odom→base_link
 
-identity map→odom at physical/path start
+start-pose alignment from first path segment and first canonical odom
   → map_odom_manager
 
 /localization/odom
@@ -39,10 +39,12 @@ identity map→odom at physical/path start
   → /control/cmd_vel
 ```
 
-The initial assumption is explicit: the physical start pose and the path start
-pose share the same origin and heading, so `map→odom` begins as identity.
-Parameters allow a measured initial x/y/yaw offset without changing the
-controller.
+The initial assumption is explicit: the vehicle is placed at the path start
+and points along the first non-coincident path segment. The manager latches
+the first canonical odom pose and computes the one-time `map→odom` transform
+that maps that pose to the path start. This absorbs an arbitrary raw LIO
+origin without changing the controller. A manually measured transform remains
+available for deployments that disable automatic start alignment.
 
 The odom guard is intentionally small:
 
@@ -85,14 +87,16 @@ cells, and selects the lowest simple goal/heading/curvature/clearance cost.
 Required tree:
 
 ```text
-map → odom → base_link → livox_horizon
-                       └→ livox_avia
+map → odom → base_link → livox_frame
 ```
 
-- `map→odom`: `map_odom_manager`, initially identity for the MVP assumption.
+- `map→odom`: `map_odom_manager`, latched from the path/vehicle start in
+  Subject 2 or loaded explicitly in Subject 1.
 - `odom→base_link`: `lio_odom_adapter`.
-- lidar static transforms: measured values supplied to bringup; invalid by
-  default until explicitly approved.
+- `base_link→livox_frame`: measured lidar static transform supplied to
+  bringup; invalid by default until explicitly approved. The pinned driver
+  uses `livox_frame` for both Horizon and Avia PointCloud2/IMU headers, and the
+  two lidars share the same mounting pose.
 - raw LIO `world→livox_frame` remains a private/raw relation and is not used as
   the canonical tree.
 
@@ -104,4 +108,3 @@ map → odom → base_link → livox_horizon
 - Vehicle actuation conversion and hardware watchdog.
 - Dynamic obstacle tracking, negative obstacles, terrain classification,
   Nav2 behavior trees, costmaps and lifecycle orchestration.
-

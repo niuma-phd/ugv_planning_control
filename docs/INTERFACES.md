@@ -28,7 +28,7 @@ T_odom_base = T_raw_world_lidar × inverse(T_base_lidar)
 
 | Topic | Type | Meaning |
 |---|---|---|
-| `/subject2/path` | `nav_msgs/msg/Path` | ordered global waypoints; first MVP assumes its start aligns with physical odom start |
+| `/subject2/path` | `nav_msgs/msg/Path` | ordered global waypoints; first MVP places the vehicle at its first point and along its first non-coincident segment |
 | `/control/cmd_vel` | `geometry_msgs/msg/TwistStamped` | final MVP command; `linear.x` m/s, `angular.z` rad/s |
 | `/subject2/target_point` | `geometry_msgs/msg/PointStamped` | selected Pure Pursuit lookahead point for tuning |
 
@@ -49,6 +49,10 @@ If path or trusted odom is stale/invalid, output is zero.
 The other team's control handoff consumes `avoidance_active` and
 `avoid_cmd_vel`. Its arbitration remains outside this repository.
 
+The pinned Livox driver uses `livox_frame` in both Horizon and Avia
+PointCloud2/IMU headers. Bringup therefore publishes the approved
+`base_link→livox_frame` transform; model-specific frame names are not invented.
+
 ## Command convention
 
 ```text
@@ -59,4 +63,3 @@ all other Twist components zero
 ```
 
 The first version does not command reverse.
-

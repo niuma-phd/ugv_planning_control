@@ -1,0 +1,59 @@
+lio_odom_adapter:
+  ros__parameters:
+    input_topic: /livox_odometry_mapped
+    output_topic: /localization/odom
+    raw_world_frame: world
+    raw_lidar_frame: livox_frame
+    odom_frame: odom
+    base_frame: base_link
+    # Overridden by launch arguments only after Avia measurement is approved.
+    extrinsics_valid: false
+
+map_odom_manager:
+  ros__parameters:
+    map_frame: map
+    odom_frame: odom
+    auto_align_from_path: true
+    path_topic: /subject2/path
+    odom_topic: /localization/odom
+    path_segment_epsilon_m: 0.05
+    publish_rate_hz: 20.0
+
+odom_guard:
+  ros__parameters:
+    input_topic: /localization/odom
+    trusted_topic: /localization/trusted_odom
+    valid_topic: /localization/odom_valid
+    snapshot_directory: /home/sunrise/.ros/ugv_mvp
+    snapshot_basename: last_good_subject2_odom
+    watchdog_rate_hz: 20.0
+    max_age_s: 0.30
+    future_tolerance_s: 0.05
+    quaternion_norm_tolerance: 0.05
+    # Candidate values: replace from healthy Avia bag statistics.
+    max_translation_jump_m: 1.50
+    max_yaw_jump_rad: 0.80
+
+waypoint_controller_node:
+  ros__parameters:
+    control_rate_hz: 20.0
+    nominal_speed: 0.10
+    max_speed: 0.20
+    max_yaw_rate: 0.40
+    max_curvature: 1.00
+    lookahead_distance: 0.80
+    use_speed_scaled_lookahead: false
+    lookahead_speed_gain: 0.0
+    min_lookahead: 0.50
+    max_lookahead: 1.50
+    slowdown_distance: 1.20
+    goal_tolerance: 0.30
+    progress_search_ahead: 200
+    progress_backtrack: 3
+    odom_timeout_sec: 0.30
+    # Fixture publisher refreshes at 1 Hz. Replace with the real upstream rule.
+    path_timeout_sec: 5.0
+    valid_timeout_sec: 0.50
+    transform_timeout_sec: 0.05
+    base_frame: base_link
+

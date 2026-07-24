@@ -3,7 +3,7 @@
   <name>ugv_localization_mvp</name>
   <version>0.1.0</version>
   <description>Minimal LIO pose adaptation, map-to-odom alignment, and fail-closed odometry guard.</description>
-  <maintainer email="ugv-team@example.com">UGV Team</maintainer>
+  <maintainer email="xcxc@nuaa.com">xcc</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

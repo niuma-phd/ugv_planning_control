@@ -137,7 +137,7 @@ class FixtureMonitor(Node):
             and bool(self.state["detected"])
             and bool(self.state["active"])
             and float(self.state["linear_x"]) > 0.0
-            and abs(float(self.state["angular_z"])) > 1.0e-6
+            and float(self.state["angular_z"]) > 0.0
         )
 
     def assert_isolated(self) -> None:

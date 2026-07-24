@@ -53,7 +53,7 @@ def generate_launch_description() -> LaunchDescription:
                         parameters=[
                             {
                                 "production_mode": False,
-                                "scenario": "front",
+                                "scenario": "right",
                                 "frame_id": "livox_frame",
                             }
                         ],

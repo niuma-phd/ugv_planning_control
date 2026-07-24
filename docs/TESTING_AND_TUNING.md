@@ -49,8 +49,11 @@ ROS_DOMAIN_ID=72 python3 scripts/verify_fixture_runtime.py subject1
 ```
 
 The cloud fixture uses `livox_frame`, so this path also exercises the static TF
-lookup. For focused detector/planner tests, repeat `none`, `left`, `right` and
-`blocked`.
+lookup. Its default obstacle is on the vehicle's right, so the expected
+avoidance command has positive `angular.z` (left turn). For focused
+detector/planner tests, repeat `none`, `front`, `left` and `blocked`; with the
+conservative candidate footprint, a centered front obstacle may correctly
+produce a zero command until measured vehicle dimensions replace it.
 
 ## 3. Real sensors, actuators disconnected
 

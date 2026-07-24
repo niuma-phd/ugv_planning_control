@@ -8,8 +8,19 @@ This session owns only:
 - `workstreams/01_localization/**`
 
 Do not edit root integration files, bringup, other packages, the Livox driver, or
-`LIO_Livox_ROS2`. Subject 2 (Avia) is the first integration target. The current
+`LIO_Livox_ROS2`. Subject 2 (Horizon + LIO) is the first integration target. The current
 implementation deliberately avoids Nav2, PCL and custom messages.
+
+Confirmed Subject 2 assumptions for the MVP:
+
+- the vehicle is a two-track differential tracked chassis;
+- Horizon and LIO provide localization; no chassis odom fallback is planned;
+- `map→odom` is the identity transform because the physical start and the global
+  path start are assumed coincident;
+- the controller publishes `geometry_msgs/msg/Twist` on `/cmd_vel`;
+- the real upstream path delivery format is unknown. Do not implement a gateway
+  or claim that another team will publish ROS 2 messages until its actual output
+  is inspected.
 
 ## Implemented data flow
 
@@ -20,9 +31,9 @@ implementation deliberately avoids Nav2, PCL and custom messages.
   -> odom_guard_node
   -> /localization/trusted_odom + /localization/odom_valid
 
-/subject2/path + first /localization/trusted_odom
+fixed identity assumption
   -> map_odom_manager_node
-  -> map -> odom TF
+  -> map -> odom TF (x=y=z=roll=pitch=yaw=0)
 ```
 
 The adapter implements exactly:
@@ -35,19 +46,21 @@ It publishes nothing unless `extrinsics_valid=true`. This flag means the six
 extrinsic numbers were measured, reviewed and approved; it is not a convenience
 switch for accepting zero defaults.
 
-The map manager has two modes:
+The map manager supports two modes, but Subject 2 currently uses only mode 1
+with all-zero values:
 
 1. `auto_align_from_path=false`: repeatedly broadcasts the parameterized initial
    `map->odom` transform.
-2. `auto_align_from_path=true`: does not broadcast until it has both a valid path
+2. `auto_align_from_path=true`: optional capability, not the current Subject 2
+   contract. It does not broadcast until it has both a valid path
    and canonical odom. It uses the first path point and the tangent of the first
    non-coincident path segment as the map-frame base start pose, computes
    `T_map_odom=T_map_base_start*inverse(T_odom_base_first)`, and latches it.
 
 A valid `/localization/map_odom_update` overrides either mode and is latched.
-Subject 2 sets `require_odom_invalid_for_update=true`, so an update is accepted
-only after the guard has published false. Subject 1 manual alignment sets it
-false because body-frame avoidance does not consume this transform.
+Subject 2 sets `require_odom_invalid_for_update=true`, so a future explicit
+update is accepted only after the guard has published false. Do not enable path
+auto-alignment merely to compensate for an unverified upstream format.
 
 The guard is fail-closed. Non-finite data, malformed quaternion, stale/future,
 repeated/backward stamp, or a single-frame position/yaw jump immediately latches
@@ -125,7 +138,7 @@ colcon test-result --verbose
 
 ## Safe synthetic smoke test (actuators disconnected)
 
-Use measured test extrinsics, not the zero example. Start each node in a separate
+Use measured Horizon extrinsics, not the zero example. Start each node in a separate
 shell after sourcing the workspace:
 
 ```bash
@@ -165,7 +178,7 @@ ros2 service call /localization/reset_odom_fault std_srvs/srv/Trigger '{}'
 3. Build Release and run package tests.
 4. Confirm only this adapter broadcasts `odom->base_link`; raw LIO TF must be
    disabled or isolated to avoid two TF authorities.
-5. Configure Avia measured `base_link->lidar` extrinsics and raw frame names.
+5. Configure Horizon measured `base_link->livox_frame` extrinsics and raw frame names.
 6. With wheels/actuators disconnected, run LIO and record at least 60 seconds of
    raw/canonical/trusted odom and `/tf`.
 7. Verify transform numerically at several poses and physically verify axes:
@@ -176,13 +189,13 @@ ros2 service call /localization/reset_odom_fault std_srvs/srv/Trigger '{}'
 
 ## TODO / blocked facts — do not guess
 
-- **P0:** Measure and approve Avia `base_link->livox_frame` xyz/RPY and uncertainty.
+- **P0:** Measure and approve Horizon `base_link->livox_frame` xyz/RPY and uncertainty.
 - **P0:** Confirm deployed LIO actually labels raw frames `world` and
   `livox_frame`; configure parameters if names differ.
 - **P0:** Disable/isolate the raw LIO TF broadcaster so TF authority is unique.
 - **P0:** Resolve the known driver/LIO IMU acceleration double-scaling before a
   live localization claim.
-- **P0:** Obtain real Avia PointCloud2+IMU+raw odom bag and characterize odom rate,
+- **P0:** Obtain real Horizon PointCloud2+IMU+raw odom bag and characterize odom rate,
   jitter, jumps, restart behavior and clock domain.
 - Confirm whether path altitude should participate in 3-D map alignment. Current
   auto alignment uses first path z but a planar tangent yaw.
@@ -193,9 +206,52 @@ ros2 service call /localization/reset_odom_fault std_srvs/srv/Trigger '{}'
   guard currently atomically replaces one last-fault pair by design.
 - Add launch/integration configuration only in the bringup-owner session.
 
+## Cheap-model tasks, in execution order
+
+Each session takes exactly one item, stays inside this workstream/package, and
+records the command output in its handoff.
+
+1. **P0 — verify the fixed Subject 2 TF contract on RDK.**
+   Confirm `map→odom` is numerically identity and that only one node publishes
+   `odom→base_link`. Do not edit the driver/LIO packages.
+   Acceptance:
+
+   ```bash
+   source /opt/ros/humble/setup.bash
+   source install/setup.bash
+   ros2 run tf2_ros tf2_echo map odom
+   ros2 run tf2_ros tf2_echo odom base_link
+   ros2 topic info /tf --verbose
+   ```
+
+2. **P0 — characterize Horizon/LIO odom health from a real recording.**
+   Report rate, 99th-percentile inter-arrival interval, repeated/backward stamps,
+   maximum healthy one-frame translation/yaw, and clock domain. Change guard
+   thresholds only from this evidence.
+   Acceptance:
+
+   ```bash
+   ros2 topic hz /livox_odometry_mapped
+   ros2 topic echo --once /livox_odometry_mapped
+   colcon test --packages-select ugv_localization_mvp
+   colcon test-result --verbose
+   ```
+
+3. **P0 — re-run deterministic guard faults after any threshold change.**
+   Acceptance:
+
+   ```bash
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2_fault
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2_jump
+   ```
+
+4. **Blocked — GPS/LIO restart recovery.**
+   Do not implement until GPS pose/heading validity, timestamps, LIO restart
+   command and post-restart frame behavior are supplied.
+
 ## Completion boundary for the next cheap-model session
 
-A follow-up localization session is complete only when it provides fresh RDK
-Release build/test output, a measured transform configuration supplied through
-bringup ownership, TF single-authority evidence, and recorded fail-closed smoke
-results. Unit tests or synthetic publishers are not live-vehicle validation.
+A follow-up localization session is complete only when its assigned item has
+fresh RDK Release build/test output and the listed acceptance evidence. A
+synthetic fixture is software validation, not live-vehicle localization proof.

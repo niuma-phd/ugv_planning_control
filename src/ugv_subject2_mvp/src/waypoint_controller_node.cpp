@@ -11,7 +11,7 @@
 
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
-#include "geometry_msgs/msg/twist_stamped.hpp"
+#include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
 #include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
@@ -104,8 +104,8 @@ public:
         }
       });
 
-    command_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>(
-      "/control/cmd_vel", rclcpp::QoS(10).reliable());
+    command_pub_ = create_publisher<geometry_msgs::msg::Twist>(
+      "/cmd_vel", rclcpp::QoS(10).reliable());
     target_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
       "/subject2/target_point", rclcpp::QoS(10).reliable());
 
@@ -147,9 +147,7 @@ private:
 
   void publish_stop()
   {
-    geometry_msgs::msg::TwistStamped command;
-    command.header.stamp = now();
-    command.header.frame_id = base_frame_;
+    geometry_msgs::msg::Twist command;
     command_pub_->publish(command);
   }
 
@@ -234,18 +232,16 @@ private:
     }
 
     const ControlOutput output = controller_.compute(input);
-    geometry_msgs::msg::TwistStamped command;
-    command.header.stamp = now();
-    command.header.frame_id = base_frame_;
+    geometry_msgs::msg::Twist command;
     if (output.valid && !output.goal_reached) {
-      command.twist.linear.x = output.linear_velocity;
-      command.twist.angular.z = output.angular_velocity;
+      command.linear.x = output.linear_velocity;
+      command.angular.z = output.angular_velocity;
     }
     command_pub_->publish(command);
 
     if (output.valid) {
       geometry_msgs::msg::PointStamped target;
-      target.header.stamp = command.header.stamp;
+      target.header.stamp = now();
       target.header.frame_id = path_frame;
       target.point.x = output.target.x;
       target.point.y = output.target.y;
@@ -275,7 +271,7 @@ private:
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
-  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr command_pub_;
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_pub_;
   rclcpp::TimerBase::SharedPtr timer_;
 };

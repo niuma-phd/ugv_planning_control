@@ -5,6 +5,11 @@
 Provide deterministic standard-message inputs for actuator-disconnected tests.
 These nodes are not a simulator and are never part of production launch.
 
+Subject 2 is the priority. Its fixture represents the confirmed internal
+Horizon/LIO dataflow, identity `map→odom`, and a two-track differential vehicle
+receiving `geometry_msgs/msg/Twist` on fixture-isolated `/fixture/cmd_vel`.
+It does **not** represent a confirmed upstream interface.
+
 ## Package
 
 `src/ugv_mvp_tools`
@@ -33,8 +38,36 @@ ros2 run ugv_mvp_tools next_waypoint_fixture_node --ros-args \
   -p production_mode:=false -p x_m:=4.0 -p y_m:=0.0
 ```
 
-## Next tasks for a low-cost session
+## Low-cost session tasks and acceptance
 
-1. Add launch tests after the production packages stabilize.
-2. Add CSV capture of `/control/cmd_vel` and `/subject1/avoid_cmd_vel`.
-3. Keep every new fixture deterministic and production-refusing.
+Take one task per session. Only modify `src/ugv_mvp_tools/**` and this workstream.
+Every fixture must remain deterministic, standard-message-only, and refuse
+`production_mode=true`.
+
+1. **P0 — keep Subject 2 nominal/stale/jump fixtures reproducible.**
+
+   ```bash
+   colcon build --packages-select ugv_mvp_tools ugv_mvp_bringup
+   colcon test --packages-select ugv_mvp_tools
+   colcon test-result --verbose
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2_fault
+   ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2_jump
+   ```
+
+   Acceptance: all pass twice on two unused domains; no fixture publishes
+   canonical `/cmd_vel`, `/tf`, `/localization/odom`, or `/subject2/path`.
+
+2. **P1 — add deterministic command CSV capture.**
+   Capture fixture-isolated `/fixture/cmd_vel` with receive time, `linear.x`,
+   `angular.z`, and mode metadata. Do not add an actuator bridge.
+   Acceptance: a unit test checks header/order and identical fixture runs produce
+   identical command sequences within explicit floating-point tolerance.
+
+3. **P1 — add launch tests after production launch contracts stabilize.**
+   Assert fixtures require `production_mode=false`, canonical topics remain
+   absent, and process shutdown leaves no survivors.
+
+4. **Blocked — upstream path fixture changes.**
+   Do not model a guessed upstream protocol. `path_fixture_node` remains only an
+   internal `nav_msgs/Path` source until a real upstream sample is supplied.

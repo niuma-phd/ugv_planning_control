@@ -2,6 +2,18 @@
 
 本文说明本项目后续如何建立 GitHub 远端，以及如何让多个 Codex 会话并行工作而不互相覆盖。
 
+## 当前集成合同
+
+- 科目二优先，当前传感器链为 Horizon PointCloud2 + LIO，
+  `ScanRegistration.msg_type=1`；
+- 车辆是两侧独立驱动的差速履带底盘；
+- 科目二临时发布 identity `map→odom`，仅用于坐标已对齐的封闭场路径；
+- 科目二最终输出是 `/cmd_vel` `geometry_msgs/msg/Twist`，单位为 m/s 与 rad/s；
+- 科目一接口保持不变；上游来源/传输/部署仍未知，禁止假定。
+
+跨包改动必须先核对 [`ARCHITECTURE.md`](ARCHITECTURE.md) 和
+[`INTERFACES.md`](INTERFACES.md)，不得让并行分支重新引入已废弃的传感器、自动起点对齐或旧最终命令 topic/type 作为当前科目二合同。
+
 ## 仓库边界
 
 代码仓库固定为：
@@ -139,11 +151,11 @@ python3 scripts/verify_repository.py
 
 ### P0：先让科目二具备实车低速测试条件
 
-- 回填并审批 Avia 的 `base_link→livox_frame` 独立 6DoF、误差和测量记录编号；
+- 回填并审批 Horizon 的 `base_link→livox_frame` 独立 6DoF、误差和测量记录编号；
 - 回填车辆速度、偏航角速度、加减速度和首次联调安全速度；
 - 解决 RDK 上雷达驱动/LIO 重力缩放问题，确认实际 LIO 参数；
-- 用真实 Avia/LIO 话题验证 canonical odom 和 TF，执行器保持断开；
-- 取得真实全局路径样本，确认物理起点、路径原点和初始朝向假设；
+- 用真实 Horizon PointCloud2/LIO `msg_type=1` 话题验证 canonical odom、identity `map→odom` 和 TF，执行器保持断开；
+- 使用人工复核的封闭场局部路径，确认其原点/轴向与临时 identity `map→odom` 假设一致；未知上游数据不得用于实车；
 - 依次完成直线、左/右弧线和 odom 断流/时间戳/跳变停车测试。
 
 ### P1：科目一真实点云与接管联调
@@ -159,7 +171,7 @@ python3 scripts/verify_repository.py
 - 只有拿到 GPS/global pose 的话题、消息、坐标系、时间和有效性定义后，才实现 GPS 辅助恢复；
 - 只有拿到明确的 LIO supervisor 重启接口和重启后有效判据后，才实现自动重启；
 - 只有上游程序及部署形式稳定后，才开发数据桥接包；
-- 下游继续只接收本项目定义的平面 `v`/`omega`，车辆执行器适配由下游团队负责。
+- 下游接收 `/cmd_vel` `geometry_msgs/msg/Twist`：`linear.x` m/s、`angular.z` rad/s；左右履带执行器换算和独立 watchdog 由下游团队负责。
 
 阻塞项的完整清单见 `docs/KNOWN_GAPS.md`。
 
@@ -186,6 +198,7 @@ python3 scripts/verify_repository.py
 - 不修改 livox_ros2_driver 或 LIO_Livox_ROS2
 - 不修改其他会话拥有的 package
 - 不假定未知上游、GPS、LIO 重启或车辆参数
+- 不改变 Subject 1 既有 topic，也不把 Subject 2 `/cmd_vel` 套到 S1 candidate 接口
 - 不用 fixture/bag/unit test 结果宣称实车通过
 
 验收：

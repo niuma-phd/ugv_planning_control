@@ -2,29 +2,78 @@
 
 ## 本会话已经交付
 
-`ugv_subject2_mvp` 是一个无 Nav2 运行时依赖的 ROS 2 Humble C++17 包：
+`ugv_subject2_mvp` 是一个无 Nav2 运行时依赖的 ROS 2 Humble C++17 包。当前
+P0 目标是 Horizon + LIO 定位的两轮差速履带车：
 
 - 输入 `/localization/trusted_odom`、`/localization/odom_valid`、`/subject2/path`。
-- 通过 TF 把 odom 当前位姿转换到 Path 坐标系；`map→odom` 由定位包负责。
-- 以 20 Hz 发布 `/control/cmd_vel`，仅使用 `linear.x` 与 `angular.z`。
+- 通过 TF 把 odom 当前位姿转换到 Path 坐标系；当前明确假设物理起点与全局
+  路径起点一致，因此定位包发布 identity `map→odom`。
+- 以 20 Hz 发布 `/cmd_vel`，消息类型为 `geometry_msgs/msg/Twist`。
+  `linear.x` 表示车体中心沿 `base_link +x` 的前进速度，单位 m/s；
+  `angular.z` 表示绕 `base_link +z` 的偏航角速度，单位 rad/s，左转为正。
+  其他 Twist 分量必须为零。履带左右轮速换算、油门、转向和执行器安全由下游
+  团队适配，本仓库不实现。
 - 发布 `/subject2/target_point` 供 RViz 和调参观察。
 - 采用路径最近进度、固定/速度缩放前视、`κ=2y/L²`、曲率/速度/角速度限幅和终点减速；前视点落在车后时保持零命令。
 - odom/path/valid 超时、invalid、空路径、非有限数或 TF 失败时，每个控制周期持续发布零命令。
 
 本包刻意不实现 GPS、LIO 重启、上游 gateway、车辆执行器适配或复杂状态机。
 
-## 便宜模型下一会话的工作边界
+`/subject2/path` 是本仓库内部控制器的标准输入，不是对上游团队实现形式的
+承诺。上游实际能提供文件、网络报文、函数调用还是其他数据尚未确认；在拿到
+真实程序/样例之前，不得提前开发桥接包，也不得让核心控制器依赖猜测出来的接口。
+
+## 便宜模型可直接执行的任务（按优先级）
 
 只修改 `src/ugv_subject2_mvp/**` 和本目录。开始前阅读根 `AGENTS.md`、
 `docs/ARCHITECTURE.md`、`docs/INTERFACES.md`。不要引入 Nav2。
 
-建议提示词：
+### P0-A：保持软件回归全绿
 
-```text
-对 ugv_subject2_mvp 做一次真车数据驱动的小步调参/修复。先读取最新 rosbag 和测试记录，
-一次只修改一个参数组或一个明确缺陷；运行包级 build/test 后再提交。不得实现尚未确认的
-GPS/LIO 恢复接口，不得把仿真或 bag 回放称为真车验证。
+不改算法，只在当前源码上执行：
+
+```bash
+source /opt/ros/humble/setup.bash
+colcon build --packages-select ugv_subject2_mvp --cmake-args -DCMAKE_BUILD_TYPE=Release
+colcon test --packages-select ugv_subject2_mvp --event-handlers console_direct+
+colcon test-result --verbose
+ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2
+ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2_fault
+ROS_DOMAIN_ID=<unused> scripts/run_fixture_smoke.sh subject2_jump
 ```
+
+验收：全部命令成功，nominal 模式 `/cmd_vel` 非零，stale/jump 后持续为零且
+last-good snapshot 与故障前最后可信 odom 一致。
+
+### P0-B：用真车 Horizon/LIO bag 调参
+
+一次只改一个参数组；保存 bag、参数 YAML、Git commit 和误差统计。不得使用
+合成 fixture 结论代替真车效果。验收至少记录：
+
+```bash
+ros2 topic hz /livox_odometry_mapped
+ros2 topic hz /localization/trusted_odom
+ros2 topic hz /cmd_vel
+ros2 topic echo --once /cmd_vel
+ros2 run tf2_ros tf2_echo map odom
+```
+
+同时给出最大/均方横向误差、终点误差、最大角速度、停车距离和人工急停记录。
+
+### P1：上游确认后的最薄适配
+
+只有拿到上游真实输出样例与更新/结束语义后才开始。新适配器只负责转换为
+`nav_msgs/msg/Path` 并发布 `/subject2/path`；不得把解析逻辑塞入控制器。
+验收需包含真实样例解析测试、畸形输入 fail-closed 测试以及：
+
+```bash
+ros2 topic echo --once /subject2/path
+ros2 topic hz /subject2/path
+```
+
+### 暂缓：GPS/LIO 恢复
+
+接口未确认前不开发。odom fault 后唯一正确行为是保持 `/cmd_vel` 为零。
 
 ## 调参顺序（先低速直线，再弯道）
 
@@ -60,7 +109,7 @@ RDK 使用专用工作区，不覆盖已安装的 Livox/LIO 工作区。同步�
 
 1. 启动定位包，确认 TF 链 `map→odom→base_link` 唯一且连续。
 2. 启动本节点并发布小型 `nav_msgs/Path`。
-3. 用 `ros2 topic hz /control/cmd_vel` 确认约 20 Hz；用 `echo` 检查只有
+3. 用 `ros2 topic hz /cmd_vel` 确认约 20 Hz；用 `echo` 检查只有
    `linear.x/angular.z` 非零。
 4. 直线路径应 `angular.z≈0`；左/右弯符号分别为正/负。
 5. 停止 trusted odom、发布 `odom_valid=false`、删除 TF、停止 path 发布，分别确认下一个周期起持续零。
@@ -69,7 +118,7 @@ RDK 使用专用工作区，不覆盖已安装的 Livox/LIO 工作区。同步�
 ## 上车测试门槛
 
 - 车辆团队确认速度、角速度、曲率、减速度与停车距离上限。
-- 实测并审核 Avia 静态 TF；TF authority 无冲突。
+- 实测并审核 Horizon 静态 TF；TF authority 无冲突。
 - 下游适配器具备独立硬件急停/看门狗，并先架空轮或断开动力验证符号。
 - 首次测试清空场地、限速、人工急停就位；先直线，再大半径弯，最后完整路径。
 

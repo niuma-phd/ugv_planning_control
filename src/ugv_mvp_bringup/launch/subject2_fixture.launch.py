@@ -18,7 +18,7 @@ def _isolated_remaps():
         "/localization/reset_odom_fault",
         "/subject2/path",
         "/subject2/target_point",
-        "/control/cmd_vel",
+        "/cmd_vel",
         "/tf",
         "/tf_static",
     )

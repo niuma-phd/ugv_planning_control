@@ -6,7 +6,7 @@ lio_odom_adapter:
     raw_lidar_frame: livox_frame
     odom_frame: odom
     base_frame: base_link
-    # Overridden by launch arguments only after Avia measurement is approved.
+    # Overridden by launch arguments only after the Horizon measurement is approved.
     extrinsics_valid: false
 
 map_odom_manager:
@@ -14,12 +14,16 @@ map_odom_manager:
     map_frame: map
     odom_frame: odom
     base_frame: base_link
-    auto_align_from_path: true
+    # Temporary Subject 2 assumption: map and odom are the same frame origin.
+    auto_align_from_path: false
     require_odom_invalid_for_update: true
-    path_topic: /subject2/path
-    odom_topic: /localization/trusted_odom
-    path_segment_epsilon_m: 0.05
     publish_rate_hz: 20.0
+    initial.x: 0.0
+    initial.y: 0.0
+    initial.z: 0.0
+    initial.roll: 0.0
+    initial.pitch: 0.0
+    initial.yaw: 0.0
 
 odom_guard:
   ros__parameters:
@@ -36,7 +40,7 @@ odom_guard:
     max_age_s: 0.50
     future_tolerance_s: 0.05
     quaternion_norm_tolerance: 0.05
-    # Candidate values: replace from healthy Avia bag statistics.
+    # Candidate values: replace from healthy Horizon/LIO bag statistics.
     max_translation_jump_m: 1.50
     max_yaw_jump_rad: 0.80
 

@@ -1,75 +1,72 @@
 # MVP architecture
 
-## Design decision
+## Current decisions
 
-This repository deliberately replaces the earlier contract-heavy design with a
-small demonstrator architecture. The goal is not a complete autonomy stack. It
-is a tunable ROS 2 system that can show useful behavior quickly and stop safely
-when its few required inputs disappear.
+This ROS 2 Humble MVP targets a two-sided differential-drive tracked vehicle. The
+controller publishes body velocity, not track speed: the downstream base converts
+`linear.x [m/s]` and `angular.z [rad/s]` to left/right track actuation.
 
-The partner-facing historical material remains useful reference, but it is not
-the implementation dependency graph for this MVP.
+Subject 2 is the critical path. Its current sensor chain is Horizon PointCloud2
+plus the existing LIO with `ScanRegistration.msg_type=1`. Subject 1 remains the
+separate Horizon obstacle-detection/avoidance interface described below; this
+Subject 2 decision does not rename or repurpose Subject 1 topics.
+
+The upstream system is still unknown. This repository defines a canonical ROS
+Path input but does not assume a network protocol, process layout, route source,
+or production update rate.
 
 ## Packages
 
-| Package | Immediate responsibility |
+| Package | Responsibility |
 |---|---|
-| `ugv_localization_mvp` | Convert raw LIO lidar pose to canonical base pose; publish `odom→base_link`; publish initial or invalid-odom-gated `map→odom`; guard odom and persist the last trusted sample |
-| `ugv_subject2_mvp` | Follow a `nav_msgs/Path` with a compact Pure Pursuit controller and publish planar speed/yaw-rate commands |
-| `ugv_subject1_perception_mvp` | Convert Livox `PointCloud2` to `base_link`, apply finite/shape/ROI/self/height filters, and publish occupied body-frame obstacle cells |
-| `ugv_subject1_avoidance_mvp` | When obstacles are present, sample low-speed constant-curvature trajectories toward the next body-frame waypoint |
-| `ugv_mvp_bringup` | Parameter files, subject-specific launches and integration smoke tests |
+| `ugv_localization_mvp` | Adapt raw LIO lidar pose to `odom→base_link`, guard odometry, publish temporary `map→odom`, and persist the last trusted sample |
+| `ugv_subject2_mvp` | Follow `/subject2/path` with Pure Pursuit and publish final `/cmd_vel` |
+| `ugv_subject1_perception_mvp` | Transform Horizon PointCloud2 to `base_link`, filter it, and publish occupied obstacle cells |
+| `ugv_subject1_avoidance_mvp` | Sample low-speed constant-curvature avoidance candidates |
+| `ugv_mvp_bringup` | Subject launches, parameters, external Horizon/LIO wrapper, and fixtures |
 
-No custom message package is used in the first version.
+No custom message package is required by this MVP.
 
-## Subject 2
+## Subject 2 critical path
 
 ```text
-Avia LIO raw Odometry
+Horizon /livox/lidar PointCloud2 + /livox/imu
+  → existing LIO, ScanRegistration.msg_type=1
+  → /livox_odometry_mapped (world→livox_frame pose)
   → lio_odom_adapter
   → /localization/odom + odom→base_link
-
-start-pose alignment from first path segment and first trusted odom
-  → map_odom_manager
-
-/localization/odom
   → odom_guard
-  → /localization/trusted_odom
-  → subject2_waypoint_controller
-  → /control/cmd_vel
+  → /localization/trusted_odom + /localization/odom_valid
+
+map→odom = identity (temporary closed-course assumption)
+/subject2/path (canonical input; upstream adapter unknown)
+  → subject2 waypoint controller
+  → /cmd_vel geometry_msgs/msg/Twist
 ```
 
-The initial assumption is explicit: the vehicle is placed at the path start
-and points along the first non-coincident path segment. The manager latches
-the first canonical odom pose and computes the one-time `map→odom` transform
-that maps that pose to the path start. This absorbs an arbitrary raw LIO
-origin without changing the controller. A manually measured transform remains
-available for deployments that disable automatic start alignment.
+The temporary Subject 2 alignment is exactly the identity transform: zero
+translation and unit quaternion from `map` to `odom`. `map` and `odom` remain
+separate frame names. The assumption is valid only when the supplied test path
+is already expressed in the same origin and axes as canonical odometry. It is
+not a global-position solution and must be replaced once upstream/global-pose
+semantics are confirmed.
 
-The odom guard is intentionally small:
+The odom guard:
 
-1. Reject wrong-frame, stale, non-finite, malformed or implausibly jumping
-   odometry.
-2. Immediately stop forwarding trusted odom.
-3. Publish invalid status and persist the last trusted odom atomically.
-4. Keep the fault latched until an explicit reset after external recovery.
+1. Rejects wrong-frame, stale, non-finite, malformed, repeated/backward, or
+   implausibly jumping odometry.
+2. Stops forwarding trusted odom, causing the controller to publish zero.
+3. Publishes invalid status and atomically persists the last trusted sample.
+4. Keeps the fault latched until explicit reset after external recovery.
 
-During Subject 2 operation an explicit `map→odom` update is accepted only while
-`odom_valid=false`. The controller discards its cached odom on that transition,
-so a reset and a new trusted odom sample are required before motion resumes.
-This prevents an old trusted pose from being combined with a new map alignment.
+GPS-assisted LIO restart remains deferred. The repository does not know the
+GPS/global-pose contract or the approved LIO restart boundary.
 
-GPS-assisted LIO restart is not guessed in this first implementation. The
-future recovery session will consume the persisted sample and a confirmed
-full global pose, call a confirmed LIO supervisor interface, update
-`map→odom`, then reset the guard. If GPS or heading is unavailable, the vehicle
-remains stopped and retires.
-
-## Subject 1
+## Subject 1 interface
 
 ```text
-Horizon PointCloud2 + base_link→livox_frame
-  → body-frame ROI/height/self filter + 2-D occupied cells
+Horizon /livox/lidar PointCloud2 + base_link→livox_frame
+  → body-frame ROI/height/self filter
   → /subject1/obstacles
 
 /subject1/obstacles + /subject1/next_waypoint_base
@@ -78,44 +75,29 @@ Horizon PointCloud2 + base_link→livox_frame
   → /subject1/avoid_cmd_vel
 ```
 
-The detector is always allowed to run. The avoidance controller only asserts
-`avoidance_active=true` for a fresh obstacle intersecting the inflated nominal
-straight rollout. When inactive it publishes a zero candidate; the other
-team's normal controller keeps control. Invalid or replayed sensor/waypoint
-input is not treated as clear road: after the short receive timeout the planner
-asserts active with a zero command. This repository does not guess the other
-team's arbitration or transport protocol.
+The detector may run continuously. The avoidance node asserts control only for
+a fresh relevant obstacle. Invalid, replayed, TF-failed, or missing input is not
+clear road: timeout produces `avoidance_active=true` with a zero candidate. The
+external takeover/return protocol remains unknown and outside this repository.
 
-The first detector uses fixed body-frame ROI and height limits instead of a
-large terrain-segmentation dependency. The first planner samples constant
-curvatures, rolls them forward, rejects collisions against inflated obstacle
-cells, and selects the lowest simple goal/heading/curvature/clearance cost.
-
-## TF
-
-Required tree:
+## TF authority
 
 ```text
 map → odom → base_link → livox_frame
 ```
 
-- `map→odom`: `map_odom_manager`, latched from the path/vehicle start in
-  Subject 2 or loaded explicitly in Subject 1.
-- `odom→base_link`: `lio_odom_adapter`.
-- `base_link→livox_frame`: measured lidar static transform supplied to
-  bringup; invalid by default until explicitly approved. The pinned driver
-  uses `livox_frame` for both Horizon and Avia PointCloud2/IMU headers. Although
-  the two lidars occupy the same nominal mounting location, Subject 1 and
-  Subject 2 measurements are reviewed independently before either profile is
-  enabled.
-- raw LIO `world→livox_frame` remains a private/raw relation and is not used as
-  the canonical tree.
+- `map→odom`: `map_odom_manager`; identity for the temporary Subject 2 profile.
+- `odom→base_link`: `lio_odom_adapter` from LIO lidar pose and the approved
+  `base_link→livox_frame` extrinsic.
+- `base_link→livox_frame`: measured static transform supplied to bringup;
+  disabled by default until approved.
+- Raw LIO `world→livox_frame`: the Horizon wrapper remaps its `/tf` output to
+  `/lio_raw/tf`, so it never gives `livox_frame` a second parent in the canonical
+  tree. An externally launched LIO must provide equivalent isolation.
 
-## Deliberately deferred
+## Safety boundary
 
-- Any upstream TCP, NDJSON, shared-memory or vendor-specific gateway.
-- Full GPS adapter, geodetic projection and GPS-heading interpretation.
-- Exact LIO process supervisor/restart implementation.
-- Vehicle actuation conversion and hardware watchdog.
-- Dynamic obstacle tracking, negative obstacles, terrain classification,
-  Nav2 behavior trees, costmaps and lifecycle orchestration.
+The repository currently publishes `/cmd_vel`; it does not implement the
+physical emergency stop, remote stop, downstream hardware watchdog, or
+left/right track actuator conversion. Non-zero vehicle testing remains blocked
+until every gate in [KNOWN_GAPS.md](KNOWN_GAPS.md) is closed.

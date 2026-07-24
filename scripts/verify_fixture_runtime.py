@@ -11,7 +11,7 @@ import sys
 import time
 
 import rclpy
-from geometry_msgs.msg import PoseArray, TwistStamped
+from geometry_msgs.msg import PoseArray, Twist, TwistStamped
 from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
@@ -27,6 +27,7 @@ class FixtureMonitor(Node):
         self.subject = "subject2" if mode.startswith("subject2") else "subject1"
         self.state: dict[str, object] = {
             "static_tf": False,
+            "map_odom_identity": False,
             "valid": False,
             "obstacles": 0,
             "cloud_messages": 0,
@@ -57,6 +58,9 @@ class FixtureMonitor(Node):
         self.create_subscription(
             TFMessage, "/fixture/tf_static", self._on_static_tf, transient
         )
+        self.create_subscription(
+            TFMessage, "/fixture/tf", self._on_dynamic_tf, reliable
+        )
 
         if self.subject == "subject2":
             self.create_subscription(
@@ -66,7 +70,7 @@ class FixtureMonitor(Node):
                 transient,
             )
             self.create_subscription(
-                TwistStamped, "/fixture/control/cmd_vel", self._on_command, reliable
+                Twist, "/fixture/cmd_vel", self._on_command, reliable
             )
             self.create_subscription(
                 Odometry,
@@ -124,6 +128,24 @@ class FixtureMonitor(Node):
                     and abs(rotation.w - 1.0) < 1.0e-9
                 )
 
+    def _on_dynamic_tf(self, message: TFMessage) -> None:
+        for transform in message.transforms:
+            if (
+                transform.header.frame_id == "map"
+                and transform.child_frame_id == "odom"
+            ):
+                translation = transform.transform.translation
+                rotation = transform.transform.rotation
+                self.state["map_odom_identity"] = (
+                    abs(translation.x) < 1.0e-9
+                    and abs(translation.y) < 1.0e-9
+                    and abs(translation.z) < 1.0e-9
+                    and abs(rotation.x) < 1.0e-9
+                    and abs(rotation.y) < 1.0e-9
+                    and abs(rotation.z) < 1.0e-9
+                    and abs(rotation.w - 1.0) < 1.0e-9
+                )
+
     def _on_valid(self, message: Bool) -> None:
         if message.data:
             self.state["valid"] = True
@@ -131,12 +153,8 @@ class FixtureMonitor(Node):
             self.state["fault_invalid"] = True
 
     def _on_obstacles(self, message: PoseArray) -> None:
-        self.state["obstacle_messages"] = (
-            int(self.state["obstacle_messages"]) + 1
-        )
-        self.state["obstacles"] = max(
-            int(self.state["obstacles"]), len(message.poses)
-        )
+        self.state["obstacle_messages"] = int(self.state["obstacle_messages"]) + 1
+        self.state["obstacles"] = max(int(self.state["obstacles"]), len(message.poses))
 
     def _on_cloud(self, _: PointCloud2) -> None:
         self.state["cloud_messages"] = int(self.state["cloud_messages"]) + 1
@@ -165,14 +183,11 @@ class FixtureMonitor(Node):
             orientation.w,
         ]
 
-    def _on_command(self, message: TwistStamped) -> None:
-        linear_x = message.twist.linear.x
-        angular_z = message.twist.angular.z
-        if (
-            math.isfinite(linear_x)
-            and math.isfinite(angular_z)
-            and linear_x > 0.0
-        ):
+    def _on_command(self, message: Twist | TwistStamped) -> None:
+        twist = message if isinstance(message, Twist) else message.twist
+        linear_x = twist.linear.x
+        angular_z = twist.angular.z
+        if math.isfinite(linear_x) and math.isfinite(angular_z) and linear_x > 0.0:
             self.state["saw_positive"] = True
             self.state["linear_x"] = linear_x
             self.state["angular_z"] = angular_z
@@ -198,6 +213,7 @@ class FixtureMonitor(Node):
         if self.mode == "subject2":
             return (
                 bool(self.state["static_tf"])
+                and bool(self.state["map_odom_identity"])
                 and bool(self.state["valid"])
                 and float(self.state["linear_x"]) > 0.0
                 and float(self.state["angular_z"]) > 0.0
@@ -205,6 +221,7 @@ class FixtureMonitor(Node):
         if self.mode == "subject2_fault":
             return (
                 bool(self.state["static_tf"])
+                and bool(self.state["map_odom_identity"])
                 and bool(self.state["valid"])
                 and float(self.state["linear_x"]) > 0.0
                 and bool(self.state["fault_invalid"])
@@ -268,6 +285,7 @@ class FixtureMonitor(Node):
                 "/subject2/path",
                 "/subject2/target_point",
                 "/control/cmd_vel",
+                "/cmd_vel",
                 "/tf",
                 "/tf_static",
             }

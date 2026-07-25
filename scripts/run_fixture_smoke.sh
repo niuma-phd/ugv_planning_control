@@ -183,12 +183,17 @@ cleanup_processes
 trap - EXIT INT TERM
 rm -rf -- "${SNAPSHOT_DIR}"
 
+# Container PID 1 may reap exited grandchildren after this script returns.
+# A zombie has no executable process left; only non-zombie session members
+# indicate that the fixture failed to shut down.
 SURVIVORS="$(
-  ps -eo sid=,pid=,args= |
-    awk -v session="${LAUNCH_PID}" '$1 == session {print}'
+  ps -eo sid=,stat=,pid=,args= |
+    awk -v session="${LAUNCH_PID}" '
+      $1 == session && $2 !~ /^Z/ {print}
+    '
 )"
 if [[ -n "${SURVIVORS}" ]]; then
-  echo "Fixture processes survived shutdown:" >&2
+  echo "Live fixture processes survived shutdown:" >&2
   echo "${SURVIVORS}" >&2
   exit 1
 fi

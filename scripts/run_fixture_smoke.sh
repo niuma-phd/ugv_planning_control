@@ -11,7 +11,7 @@ fi
 # ROS setup scripts are not safe under nounset.
 source /opt/ros/humble/setup.bash
 if [[ ! -f "${REPOSITORY_ROOT}/install/setup.bash" ]]; then
-  echo "Build the repository before running fixture smoke tests." >&2
+  echo "Build the complete development workspace before running fixture tests." >&2
   exit 2
 fi
 source "${REPOSITORY_ROOT}/install/setup.bash"
@@ -33,126 +33,155 @@ if [[ "$#" -ne 1 ]]; then
   echo "Exactly one fixture mode is required." >&2
   exit 2
 fi
-LAUNCH_FILE=""
-VERIFY_MODE=""
+
+VERIFY_MODE="${MODE}"
 EXPECTED_FAULT="stale"
+EXPECT_PATH_REJECTION=false
 VERIFY_TIMEOUT="15.0"
 LAUNCH_ARGUMENTS=()
 
 case "${MODE}" in
   subject2)
-    LAUNCH_FILE="subject2_fixture.launch.py"
-    VERIFY_MODE="subject2"
+    LAUNCH_ARGUMENTS+=("path_shape:=left")
     ;;
-  subject2_fault)
-    LAUNCH_FILE="subject2_fixture.launch.py"
-    VERIFY_MODE="subject2_fault"
+  subject2_right)
+    LAUNCH_ARGUMENTS+=("path_shape:=right")
+    ;;
+  subject2_line)
+    LAUNCH_ARGUMENTS+=("path_shape:=line")
+    ;;
+  subject2_path_timeout)
+    LAUNCH_ARGUMENTS+=("path_shape:=left" "path_stop_after_s:=3.0")
+    VERIFY_TIMEOUT="12.0"
+    ;;
+  subject2_path_replay)
+    LAUNCH_ARGUMENTS+=(
+      "path_shape:=left"
+      "path_stamp_mode:=freeze"
+      "path_freeze_stamp_after_s:=3.0"
+    )
+    EXPECT_PATH_REJECTION=true
+    VERIFY_TIMEOUT="12.0"
+    ;;
+  subject2_path_wrong_frame)
+    LAUNCH_ARGUMENTS+=("path_frame:=unknown_map")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_path_zero_stamp)
+    LAUNCH_ARGUMENTS+=("path_stamp_mode:=zero")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_path_negative_stamp)
+    LAUNCH_ARGUMENTS+=("path_stamp_mode:=negative")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_path_invalid_nanosec)
+    LAUNCH_ARGUMENTS+=("path_stamp_mode:=invalid_nanosec")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_path_empty)
+    LAUNCH_ARGUMENTS+=("path_empty:=true")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_path_wrong_pose_frame)
+    LAUNCH_ARGUMENTS+=("path_pose_frame_override:=unknown_map")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_path_nonfinite)
+    LAUNCH_ARGUMENTS+=("path_inject_nonfinite_x:=true")
+    EXPECT_PATH_REJECTION=true
+    ;;
+  subject2_odom_timeout)
     LAUNCH_ARGUMENTS+=("raw_odom_stop_after_s:=6.0")
+    VERIFY_TIMEOUT="15.0"
     ;;
-  subject2_jump)
-    LAUNCH_FILE="subject2_fixture.launch.py"
-    VERIFY_MODE="subject2_fault"
+  subject2_odom_jump)
     EXPECTED_FAULT="translation_jump"
     LAUNCH_ARGUMENTS+=("raw_odom_inject_jump_after_s:=6.0")
+    VERIFY_TIMEOUT="15.0"
     ;;
-  subject1)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1"
-    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=right")
-    ;;
-  subject1_none)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_none"
-    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=none")
-    ;;
-  subject1_blocked)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_blocked"
-    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=blocked")
-    ;;
-  subject1_fault)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_fault"
-    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=right" "pointcloud_stop_after_s:=6.0")
-    ;;
-  subject1_replay)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_replay"
+  subject2_odom_invalid_stamp)
+    EXPECTED_FAULT="invalid_stamp"
     LAUNCH_ARGUMENTS+=(
-      "pointcloud_scenario:=right"
-      "pointcloud_freeze_stamp_after_s:=6.0"
+      "raw_odom_topic:=/localization/odom"
+      "raw_odom_frame_id:=odom"
+      "raw_odom_child_frame_id:=base_link"
+      "raw_odom_stamp_mode_after_s:=6.0"
+      "raw_odom_stamp_mode_after:=negative"
     )
-    ;;
-  subject1_invalid)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_invalid"
-    LAUNCH_ARGUMENTS+=("pointcloud_scenario:=all_nan")
-    ;;
-  subject1_release)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_release"
-    LAUNCH_ARGUMENTS+=(
-      "pointcloud_scenario:=right"
-      "pointcloud_scenario_after_s:=6.0"
-      "pointcloud_scenario_after:=none"
-    )
-    ;;
-  subject1_nominal_stale)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_nominal_stale"
-    LAUNCH_ARGUMENTS+=(
-      "pointcloud_scenario:=none"
-      "nominal_cmd_stop_after_s:=6.0"
-    )
-    ;;
-  subject1_nominal_invalid)
-    LAUNCH_FILE="subject1_fixture.launch.py"
-    VERIFY_MODE="subject1_nominal_invalid"
-    LAUNCH_ARGUMENTS+=(
-      "pointcloud_scenario:=none"
-      "nominal_linear_x:=nan"
-    )
+    VERIFY_TIMEOUT="15.0"
     ;;
   *)
-    echo "Usage: ROS_DOMAIN_ID=<unused> $0 {subject2|subject2_fault|subject2_jump|subject1|subject1_none|subject1_blocked|subject1_fault|subject1_replay|subject1_invalid|subject1_release|subject1_nominal_stale|subject1_nominal_invalid}" >&2
+    cat >&2 <<'EOF'
+用法：
+  ROS_DOMAIN_ID=<空闲编号> scripts/run_fixture_smoke.sh <模式>
+
+模式：
+  subject2
+  subject2_right
+  subject2_line
+  subject2_path_timeout
+  subject2_path_replay
+  subject2_path_wrong_frame
+  subject2_path_zero_stamp
+  subject2_path_negative_stamp
+  subject2_path_invalid_nanosec
+  subject2_path_empty
+  subject2_path_wrong_pose_frame
+  subject2_path_nonfinite
+  subject2_odom_timeout
+  subject2_odom_jump
+  subject2_odom_invalid_stamp
+EOF
     exit 2
     ;;
 esac
 
-SNAPSHOT="/home/sunrise/.ros/ugv_mvp/last_good_subject2_odom.json"
-if [[ "${VERIFY_MODE}" == "subject2_fault" ]]; then
-  rm -f -- "${SNAPSHOT}" "${SNAPSHOT%.json}.csv"
-fi
-
+SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ugv_subject2_fixture.XXXXXX")"
+SNAPSHOT="${SNAPSHOT_DIR}/last_good_subject2_odom.json"
+LAUNCH_ARGUMENTS+=("odom_snapshot_directory:=${SNAPSHOT_DIR}")
 LOG_FILE="${TMPDIR:-/tmp}/ugv_${MODE}_${ROS_DOMAIN_ID}.log"
+
 cd "${REPOSITORY_ROOT}"
-setsid ros2 launch ugv_mvp_tools "${LAUNCH_FILE}" \
+setsid ros2 launch ugv_mvp_tools subject2_fixture.launch.py \
   "${LAUNCH_ARGUMENTS[@]}" >"${LOG_FILE}" 2>&1 &
 LAUNCH_PID=$!
 
-cleanup() {
-  kill -INT -- "-${LAUNCH_PID}" 2>/dev/null || true
-  for _ in $(seq 1 60); do
-    if ! kill -0 "${LAUNCH_PID}" 2>/dev/null; then
+cleanup_processes() {
+  # Background jobs inherit SIGINT as ignored in a non-interactive shell.
+  # Send one SIGTERM to the isolated fixture process group instead.
+  kill -TERM -- "-${LAUNCH_PID}" 2>/dev/null || true
+  for _ in $(seq 1 40); do
+    if ! ps -eo sid=,stat= |
+      awk -v session="${LAUNCH_PID}" '
+        $1 == session && $2 !~ /^Z/ {found = 1}
+        END {exit(found ? 0 : 1)}
+      '
+    then
       wait "${LAUNCH_PID}" 2>/dev/null || true
       return
     fi
     sleep 0.25
   done
-  kill -TERM -- "-${LAUNCH_PID}" 2>/dev/null || true
-  sleep 1
   kill -KILL -- "-${LAUNCH_PID}" 2>/dev/null || true
   wait "${LAUNCH_PID}" 2>/dev/null || true
 }
-trap cleanup EXIT INT TERM
+
+cleanup_all() {
+  cleanup_processes
+  rm -rf -- "${SNAPSHOT_DIR}"
+}
+trap cleanup_all EXIT INT TERM
 
 sleep 0.5
 python3 scripts/verify_fixture_runtime.py "${VERIFY_MODE}" \
-  --expected-fault "${EXPECTED_FAULT}" --snapshot "${SNAPSHOT}" \
+  --expected-fault "${EXPECTED_FAULT}" \
+  --snapshot "${SNAPSHOT}" \
   --timeout "${VERIFY_TIMEOUT}"
 
-cleanup
+cleanup_processes
 trap - EXIT INT TERM
+rm -rf -- "${SNAPSHOT_DIR}"
 
 SURVIVORS="$(
   ps -eo sid=,pid=,args= |
@@ -168,5 +197,11 @@ if grep -qE "Traceback|process has died|Caught exception" "${LOG_FILE}"; then
   cat "${LOG_FILE}" >&2
   exit 1
 fi
+if [[ "${EXPECT_PATH_REJECTION}" == true ]] &&
+  ! grep -q "Rejected /subject2/path" "${LOG_FILE}"; then
+  echo "Fixture did not observe the expected controller path rejection:" >&2
+  cat "${LOG_FILE}" >&2
+  exit 1
+fi
 
-echo "RDK_FIXTURE_SMOKE_OK mode=${MODE} domain=${ROS_DOMAIN_ID} log=${LOG_FILE}"
+echo "SUBJECT2_FIXTURE_SMOKE_OK mode=${MODE} domain=${ROS_DOMAIN_ID} log=${LOG_FILE}"

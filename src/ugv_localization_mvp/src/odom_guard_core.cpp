@@ -25,6 +25,7 @@ const char * toString(OdomFault fault)
     case OdomFault::kAlreadyLatched: return "already_latched";
     case OdomFault::kNonFinite: return "non_finite";
     case OdomFault::kInvalidQuaternion: return "invalid_quaternion";
+    case OdomFault::kInvalidStamp: return "invalid_stamp";
     case OdomFault::kStale: return "stale";
     case OdomFault::kFutureStamp: return "future_stamp";
     case OdomFault::kRepeatedStamp: return "repeated_stamp";

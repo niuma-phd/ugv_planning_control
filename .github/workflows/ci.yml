@@ -19,11 +19,9 @@ jobs:
           rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
       - name: Verify repository
         run: python3 scripts/verify_repository.py
-      - name: Build subjects independently
+      - name: Build Subject 2 production packages
         shell: bash
-        run: |
-          scripts/build_subject2.sh --clean
-          scripts/build_subject1.sh --clean
+        run: scripts/build_subject2.sh --clean
       - name: Build complete development workspace
         shell: bash
         run: |
@@ -36,3 +34,21 @@ jobs:
           source install/setup.bash
           colcon test --event-handlers console_cohesion+
           colcon test-result --verbose
+      - name: Subject 2 isolated runtime fixtures
+        shell: bash
+        run: |
+          ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
+          ROS_DOMAIN_ID=172 scripts/run_fixture_smoke.sh subject2_right
+          ROS_DOMAIN_ID=173 scripts/run_fixture_smoke.sh subject2_line
+          ROS_DOMAIN_ID=174 scripts/run_fixture_smoke.sh subject2_path_timeout
+          ROS_DOMAIN_ID=175 scripts/run_fixture_smoke.sh subject2_path_replay
+          ROS_DOMAIN_ID=176 scripts/run_fixture_smoke.sh subject2_path_wrong_frame
+          ROS_DOMAIN_ID=177 scripts/run_fixture_smoke.sh subject2_path_zero_stamp
+          ROS_DOMAIN_ID=178 scripts/run_fixture_smoke.sh subject2_path_negative_stamp
+          ROS_DOMAIN_ID=179 scripts/run_fixture_smoke.sh subject2_path_invalid_nanosec
+          ROS_DOMAIN_ID=180 scripts/run_fixture_smoke.sh subject2_path_empty
+          ROS_DOMAIN_ID=181 scripts/run_fixture_smoke.sh subject2_path_wrong_pose_frame
+          ROS_DOMAIN_ID=182 scripts/run_fixture_smoke.sh subject2_path_nonfinite
+          ROS_DOMAIN_ID=183 scripts/run_fixture_smoke.sh subject2_odom_timeout
+          ROS_DOMAIN_ID=184 scripts/run_fixture_smoke.sh subject2_odom_jump
+          ROS_DOMAIN_ID=185 scripts/run_fixture_smoke.sh subject2_odom_invalid_stamp

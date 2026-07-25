@@ -11,6 +11,7 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -22,12 +23,14 @@ find_package(tf2_geometry_msgs REQUIRED)
 
 add_library(${PROJECT_NAME}_core
   src/odom_guard_core.cpp
+  src/ros_time.cpp
   src/transform_math.cpp
 )
 target_include_directories(${PROJECT_NAME}_core PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
-ament_target_dependencies(${PROJECT_NAME}_core geometry_msgs tf2 tf2_geometry_msgs)
+ament_target_dependencies(
+  ${PROJECT_NAME}_core builtin_interfaces geometry_msgs tf2 tf2_geometry_msgs)
 
 add_executable(lio_odom_adapter_node src/lio_odom_adapter_node.cpp)
 target_link_libraries(lio_odom_adapter_node ${PROJECT_NAME}_core)
@@ -59,9 +62,12 @@ if(BUILD_TESTING)
   ament_add_gtest(test_transform_math test/test_transform_math.cpp)
   target_link_libraries(test_transform_math ${PROJECT_NAME}_core)
   ament_target_dependencies(test_transform_math geometry_msgs tf2 tf2_geometry_msgs)
+  ament_add_gtest(test_ros_time test/test_ros_time.cpp)
+  target_link_libraries(test_ros_time ${PROJECT_NAME}_core)
+  ament_target_dependencies(test_ros_time builtin_interfaces)
 endif()
 
 ament_export_include_directories(include)
 ament_export_libraries(${PROJECT_NAME}_core)
-ament_export_dependencies(geometry_msgs tf2 tf2_geometry_msgs)
+ament_export_dependencies(builtin_interfaces geometry_msgs tf2 tf2_geometry_msgs)
 ament_package()

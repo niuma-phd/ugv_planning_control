@@ -25,10 +25,6 @@ setup(
         "console_scripts": [
             "path_fixture_node = ugv_mvp_tools.path_fixture_node:main",
             "raw_odom_fixture_node = ugv_mvp_tools.raw_odom_fixture_node:main",
-            "pointcloud_fixture_node = ugv_mvp_tools.pointcloud_fixture_node:main",
-            "next_waypoint_fixture_node = ugv_mvp_tools.next_waypoint_fixture_node:main",
-            "nominal_cmd_fixture_node = ugv_mvp_tools.nominal_cmd_fixture_node:main",
-            "static_tf_fixture_node = ugv_mvp_tools.static_tf_fixture_node:main",
         ],
     },
 )

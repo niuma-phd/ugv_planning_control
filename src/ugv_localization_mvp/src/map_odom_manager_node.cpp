@@ -14,6 +14,7 @@
 #include <std_msgs/msg/bool.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
+#include "ugv_localization_mvp/ros_time.hpp"
 #include "ugv_localization_mvp/transform_math.hpp"
 
 namespace ugv_localization_mvp
@@ -106,7 +107,7 @@ private:
     std::lock_guard<std::mutex> lock(mutex_);
     if (auto_alignment_latched_ || msg->header.frame_id != odom_frame_ ||
       msg->child_frame_id != base_frame_ ||
-      rclcpp::Time(msg->header.stamp).nanoseconds() <= 0 ||
+      !positiveRosTimeToNanoseconds(msg->header.stamp) ||
       !finiteAndNormalized(msg->pose.pose)) {return;}
     if (!first_odom_pose_) {first_odom_pose_ = msg->pose.pose;}
     tryAutoAlign();

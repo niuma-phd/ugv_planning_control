@@ -2,9 +2,9 @@
 build/
 install/
 log/
-build_subject*/
-install_subject*/
-log_subject*/
+build_subject2/
+install_subject2/
+log_subject2/
 .colcon/
 
 # CMake and compiled output

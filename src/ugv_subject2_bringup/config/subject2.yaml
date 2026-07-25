@@ -66,3 +66,4 @@ waypoint_controller_node:
     valid_timeout_sec: 0.50
     transform_timeout_sec: 0.05
     base_frame: base_link
+    expected_path_frame: map

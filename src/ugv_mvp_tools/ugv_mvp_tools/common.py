@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from typing import Iterable
 
 
 def path_points(
@@ -58,31 +57,3 @@ def integrate_pose(
         y_m - radius * (math.cos(new_yaw) - math.cos(yaw_rad)),
         math.atan2(math.sin(new_yaw), math.cos(new_yaw)),
     )
-
-
-def scenario_points(scenario: str) -> list[tuple[float, float, float, float]]:
-    centers: list[tuple[float, float]]
-    if scenario == "none":
-        # A non-empty, finite cloud outside the configured ROI proves a
-        # genuinely observed clear scene rather than exercising invalid input.
-        centers = [(9.0, 0.0)]
-    elif scenario == "all_nan":
-        return [(math.nan, math.nan, math.nan, 100.0)] * 25
-    elif scenario == "front":
-        centers = [(2.0, 0.0)]
-    elif scenario == "left":
-        centers = [(2.0, 0.8)]
-    elif scenario == "right":
-        centers = [(2.0, -0.8)]
-    elif scenario == "blocked":
-        centers = [(2.0, -1.0), (2.0, -0.5), (2.0, 0.0), (2.0, 0.5), (2.0, 1.0)]
-    else:
-        raise ValueError(f"unsupported point-cloud scenario: {scenario}")
-
-    result: list[tuple[float, float, float, float]] = []
-    offsets: Iterable[float] = (-0.08, -0.04, 0.0, 0.04, 0.08)
-    for center_x, center_y in centers:
-        for dx in offsets:
-            for dy in offsets:
-                result.append((center_x + dx, center_y + dy, 0.35, 100.0))
-    return result

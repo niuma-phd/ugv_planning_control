@@ -12,6 +12,7 @@ enum class OdomFault
   kAlreadyLatched,
   kNonFinite,
   kInvalidQuaternion,
+  kInvalidStamp,
   kStale,
   kFutureStamp,
   kRepeatedStamp,

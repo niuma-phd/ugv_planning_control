@@ -2,8 +2,8 @@
 
 ## Goal
 
-Deliver the smallest ROS 2 Humble system that can demonstrate both vehicle
-subjects on RDK S100. Subject 2 is always the first integration priority.
+Deliver the smallest ROS 2 Humble system that can demonstrate Subject 2
+autonomous navigation on RDK S100. Subject 1 is archived and out of scope.
 
 ## Scope and architecture rules
 
@@ -28,9 +28,7 @@ subjects on RDK S100. Subject 2 is always the first integration priority.
 1. Localization adapter and TF foundation.
 2. Subject 2 odom guard and waypoint follower.
 3. Subject 2 recovery only after GPS and LIO restart interfaces are confirmed.
-4. Subject 1 point-cloud obstacle detection.
-5. Subject 1 body-frame local avoidance.
-6. Full bringup, RDK and closed-course tuning.
+4. Full Subject 2 bringup, RDK and closed-course tuning.
 
 ## Ownership
 
@@ -45,7 +43,6 @@ From the repository root:
 
 ```bash
 scripts/build_subject2.sh --clean
-scripts/build_subject1.sh --clean
 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 colcon test
 colcon test-result --verbose

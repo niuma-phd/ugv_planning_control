@@ -4,6 +4,7 @@
 #include <cmath>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -63,17 +64,20 @@ public:
     valid_timeout_sec_ = declare_parameter("valid_timeout_sec", 0.5);
     transform_timeout_sec_ = declare_parameter("transform_timeout_sec", 0.05);
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
+    expected_path_frame_ = declare_parameter<std::string>("expected_path_frame", "map");
 
     if (!std::isfinite(control_rate_hz_) || control_rate_hz_ <= 0.0) {
       throw std::invalid_argument("control_rate_hz must be positive");
     }
-    if (base_frame_.empty() || !std::isfinite(odom_timeout_sec_) ||
+    if (base_frame_.empty() || expected_path_frame_.empty() ||
+      !std::isfinite(odom_timeout_sec_) ||
       !std::isfinite(path_timeout_sec_) || !std::isfinite(valid_timeout_sec_) ||
       !std::isfinite(transform_timeout_sec_) || odom_timeout_sec_ <= 0.0 ||
       path_timeout_sec_ <= 0.0 || valid_timeout_sec_ <= 0.0 ||
       transform_timeout_sec_ < 0.0)
     {
-      throw std::invalid_argument("base_frame and finite positive input timeouts are required");
+      throw std::invalid_argument(
+              "base/path frames and finite positive input timeouts are required");
     }
 
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
@@ -96,9 +100,20 @@ public:
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       "/subject2/path", rclcpp::QoS(1).reliable(),
       [this](nav_msgs::msg::Path::ConstSharedPtr message) {
+        std::string rejection;
+        std::int64_t stamp_ns = 0;
+        if (!validate_path_message(*message, stamp_ns, rejection)) {
+          path_.reset();
+          controller_.reset_progress();
+          RCLCPP_WARN_THROTTLE(
+            get_logger(), *get_clock(), 2000, "Rejected /subject2/path: %s",
+            rejection.c_str());
+          return;
+        }
         const bool geometry_changed = !path_ || !same_path_geometry(*path_, *message);
         path_ = std::move(message);
         path_received_at_ = std::chrono::steady_clock::now();
+        last_path_stamp_ns_ = stamp_ns;
         if (geometry_changed) {
           controller_.reset_progress();
         }
@@ -116,6 +131,54 @@ public:
   }
 
 private:
+  bool validate_path_message(
+    const nav_msgs::msg::Path & path, std::int64_t & stamp_ns,
+    std::string & rejection) const
+  {
+    if (path.header.stamp.sec < 0) {
+      rejection = "header.stamp.sec must not be negative";
+      return false;
+    }
+    if (path.header.stamp.nanosec >= 1000000000U) {
+      rejection = "header.stamp.nanosec must be less than 1000000000";
+      return false;
+    }
+    stamp_ns =
+      static_cast<std::int64_t>(path.header.stamp.sec) * 1000000000LL +
+      static_cast<std::int64_t>(path.header.stamp.nanosec);
+    if (path.header.frame_id != expected_path_frame_) {
+      rejection = "header.frame_id must equal '" + expected_path_frame_ + "'";
+      return false;
+    }
+    if (stamp_ns <= 0) {
+      rejection = "header.stamp must be non-zero";
+      return false;
+    }
+    if (last_path_stamp_ns_ && stamp_ns <= *last_path_stamp_ns_) {
+      rejection = "header.stamp must advance strictly";
+      return false;
+    }
+    if (path.poses.empty()) {
+      rejection = "poses must not be empty";
+      return false;
+    }
+    for (const auto & pose : path.poses) {
+      if (!pose.header.frame_id.empty() &&
+        pose.header.frame_id != expected_path_frame_)
+      {
+        rejection = "every pose frame must be empty or match the path frame";
+        return false;
+      }
+      if (!std::isfinite(pose.pose.position.x) ||
+        !std::isfinite(pose.pose.position.y))
+      {
+        rejection = "every pose x/y value must be finite";
+        return false;
+      }
+    }
+    return true;
+  }
+
   static bool same_path_geometry(
     const nav_msgs::msg::Path & first, const nav_msgs::msg::Path & second)
   {
@@ -198,25 +261,7 @@ private:
     input.path.reserve(path_->poses.size());
 
     for (const auto & pose : path_->poses) {
-      const std::string source_frame = pose.header.frame_id.empty() ? path_frame : pose.header.frame_id;
-      if (source_frame == path_frame) {
-        input.path.push_back(Point2D{pose.pose.position.x, pose.pose.position.y});
-        continue;
-      }
-
-      geometry_msgs::msg::PointStamped source;
-      source.header = pose.header;
-      source.header.frame_id = source_frame;
-      source.point = pose.pose.position;
-      try {
-        const auto transformed = tf_buffer_.transform(
-          source, path_frame, tf2::durationFromSec(transform_timeout_sec_));
-        input.path.push_back(Point2D{transformed.point.x, transformed.point.y});
-      } catch (const tf2::TransformException & error) {
-        RCLCPP_WARN_THROTTLE(
-          get_logger(), *get_clock(), 2000, "Cannot transform path point: %s", error.what());
-        return false;
-      }
+      input.path.push_back(Point2D{pose.pose.position.x, pose.pose.position.y});
     }
     input.inputs_valid = true;
     return true;
@@ -260,6 +305,7 @@ private:
   std::chrono::steady_clock::time_point odom_received_at_{};
   std::chrono::steady_clock::time_point path_received_at_{};
   std::chrono::steady_clock::time_point valid_received_at_{};
+  std::optional<std::int64_t> last_path_stamp_ns_;
 
   double control_rate_hz_{20.0};
   double odom_timeout_sec_{0.3};
@@ -267,6 +313,7 @@ private:
   double valid_timeout_sec_{0.5};
   double transform_timeout_sec_{0.05};
   std::string base_frame_{"base_link"};
+  std::string expected_path_frame_{"map"};
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;

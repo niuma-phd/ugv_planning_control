@@ -2,6 +2,5 @@
 /AGENTS.md @niuma-phd
 /docs/ @niuma-phd
 /.github/ @niuma-phd
-/src/ugv_subject1_bringup/ @niuma-phd
 /src/ugv_subject2_bringup/ @niuma-phd
 /src/ugv_mvp_tools/launch/ @niuma-phd

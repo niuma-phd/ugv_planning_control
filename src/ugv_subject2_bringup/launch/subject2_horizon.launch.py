@@ -69,6 +69,7 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "config_file": LaunchConfiguration("subject2_config"),
+            "odom_snapshot_directory": LaunchConfiguration("odom_snapshot_directory"),
             "publish_lidar_static_tf": LaunchConfiguration("publish_lidar_static_tf"),
             "lidar_extrinsics_provenance": LaunchConfiguration(
                 "lidar_extrinsics_provenance"
@@ -113,6 +114,10 @@ def generate_launch_description() -> LaunchDescription:
                 default_value=PathJoinSubstitution(
                     [bringup_share, "config", "subject2.yaml"]
                 ),
+            ),
+            DeclareLaunchArgument(
+                "odom_snapshot_directory",
+                default_value="/home/sunrise/.ros/ugv_mvp",
             ),
             DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
             DeclareLaunchArgument("lidar_extrinsics_provenance", default_value=""),

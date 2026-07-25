@@ -26,10 +26,17 @@ class RawOdomFixtureNode(Node):
         self.declare_parameter("stop_after_s", -1.0)
         self.declare_parameter("inject_jump_after_s", -1.0)
         self.declare_parameter("jump_distance_m", 5.0)
+        self.declare_parameter("stamp_mode_after_s", -1.0)
+        self.declare_parameter("stamp_mode_after", "current")
 
         rate_hz = float(self.get_parameter("rate_hz").value)
         if rate_hz <= 0.0:
             raise ValueError("rate_hz must be positive")
+        stamp_mode_after = str(self.get_parameter("stamp_mode_after").value)
+        if stamp_mode_after not in {"current", "negative", "invalid_nanosec"}:
+            raise ValueError(
+                "stamp_mode_after must be current, negative, or invalid_nanosec"
+            )
         self.publisher = self.create_publisher(
             Odometry, str(self.get_parameter("topic").value), 10
         )
@@ -67,7 +74,19 @@ class RawOdomFixtureNode(Node):
             self.jump_injected = True
 
         msg = Odometry()
-        msg.header.stamp = self.get_clock().now().to_msg()
+        stamp_mode = "current"
+        stamp_mode_after_s = float(
+            self.get_parameter("stamp_mode_after_s").value
+        )
+        if stamp_mode_after_s >= 0.0 and elapsed_s >= stamp_mode_after_s:
+            stamp_mode = str(self.get_parameter("stamp_mode_after").value)
+        if stamp_mode == "current":
+            msg.header.stamp = self.get_clock().now().to_msg()
+        elif stamp_mode == "negative":
+            msg.header.stamp.sec = -1
+        elif stamp_mode == "invalid_nanosec":
+            msg.header.stamp.sec = 1
+            msg.header.stamp.nanosec = 1_000_000_000
         msg.header.frame_id = str(self.get_parameter("frame_id").value)
         msg.child_frame_id = str(self.get_parameter("child_frame_id").value)
         msg.pose.pose.position.x = self.x_m

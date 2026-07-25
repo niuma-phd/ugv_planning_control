@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -17,6 +18,7 @@
 #include <std_srvs/srv/trigger.hpp>
 
 #include "ugv_localization_mvp/odom_guard_core.hpp"
+#include "ugv_localization_mvp/ros_time.hpp"
 #include "ugv_localization_mvp/transform_math.hpp"
 
 namespace ugv_localization_mvp
@@ -116,10 +118,14 @@ private:
     return settings;
   }
 
-  static OdomSample sampleFrom(const nav_msgs::msg::Odometry & msg)
+  static std::optional<OdomSample> sampleFrom(const nav_msgs::msg::Odometry & msg)
   {
+    const auto stamp_ns = positiveRosTimeToNanoseconds(msg.header.stamp);
+    if (!stamp_ns) {
+      return std::nullopt;
+    }
     OdomSample sample;
-    sample.stamp_ns = rclcpp::Time(msg.header.stamp).nanoseconds();
+    sample.stamp_ns = *stamp_ns;
     sample.x = msg.pose.pose.position.x;
     sample.y = msg.pose.pose.position.y;
     sample.z = msg.pose.pose.position.z;
@@ -140,18 +146,23 @@ private:
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (node_fault_latched_ || core_.latched()) {return;}
+    if (node_fault_ != OdomFault::kNone || core_.latched()) {return;}
     if (msg->header.frame_id != expected_frame_id_ ||
       msg->child_frame_id != expected_child_frame_id_)
     {
-      node_fault_latched_ = true;
-      handleFault(OdomFault::kFrameMismatch);
+      node_fault_ = OdomFault::kFrameMismatch;
+      handleFault(node_fault_);
       return;
     }
-    const OdomSample sample = sampleFrom(*msg);
-    last_received_sample_ = sample;
+    const auto sample = sampleFrom(*msg);
+    if (!sample) {
+      node_fault_ = OdomFault::kInvalidStamp;
+      handleFault(node_fault_);
+      return;
+    }
+    last_received_sample_ = *sample;
     have_received_sample_ = true;
-    const OdomFault fault = core_.evaluate(sample, now().nanoseconds());
+    const OdomFault fault = core_.evaluate(*sample, now().nanoseconds());
     if (fault != OdomFault::kNone) {
       handleFault(fault);
       return;
@@ -168,12 +179,12 @@ private:
   void onWatchdog()
   {
     std::lock_guard<std::mutex> lock(mutex_);
-    if (node_fault_latched_ || core_.latched()) {
+    if (node_fault_ != OdomFault::kNone || core_.latched()) {
       if (!snapshot_written_ && snapshot_attempts_ < kMaxSnapshotAttempts &&
         have_last_good_msg_)
       {
         handleFault(
-          node_fault_latched_ ? OdomFault::kFrameMismatch : core_.latchedFault());
+          node_fault_ != OdomFault::kNone ? node_fault_ : core_.latchedFault());
       }
       return;
     }
@@ -213,11 +224,14 @@ private:
     const auto & q = msg.pose.pose.orientation;
     const auto & linear = msg.twist.twist.linear;
     const auto & angular = msg.twist.twist.angular;
-    const std::int64_t stamp_ns = rclcpp::Time(msg.header.stamp).nanoseconds();
+    const auto stamp_ns = positiveRosTimeToNanoseconds(msg.header.stamp);
+    if (!stamp_ns) {
+      throw std::runtime_error("last-good odometry has an invalid timestamp");
+    }
     std::ostringstream json;
     json << std::setprecision(17)
          << "{\n  \"fault\": \"" << toString(fault) << "\",\n"
-         << "  \"stamp_ns\": " << stamp_ns << ",\n"
+         << "  \"stamp_ns\": " << *stamp_ns << ",\n"
          << "  \"frame_id\": \"" << jsonEscape(msg.header.frame_id) << "\",\n"
          << "  \"child_frame_id\": \"" << jsonEscape(msg.child_frame_id) << "\",\n"
          << "  \"position_m\": [" << p.x << ", " << p.y << ", " << p.z << "],\n"
@@ -226,7 +240,7 @@ private:
          << "  \"angular_velocity_radps\": [" << angular.x << ", " << angular.y << ", " << angular.z << "]\n}\n";
     std::ostringstream csv;
     csv << "fault,stamp_ns,frame_id,child_frame_id,x_m,y_m,z_m,qx,qy,qz,qw,vx_mps,vy_mps,vz_mps,wx_radps,wy_radps,wz_radps\n"
-        << std::setprecision(17) << toString(fault) << ',' << stamp_ns << ','
+        << std::setprecision(17) << toString(fault) << ',' << *stamp_ns << ','
         << msg.header.frame_id << ',' << msg.child_frame_id << ','
         << p.x << ',' << p.y << ',' << p.z << ',' << q.x << ',' << q.y << ',' << q.z << ',' << q.w << ','
         << linear.x << ',' << linear.y << ',' << linear.z << ','
@@ -242,7 +256,7 @@ private:
   {
     std::lock_guard<std::mutex> lock(mutex_);
     core_.reset();
-    node_fault_latched_ = false;
+    node_fault_ = OdomFault::kNone;
     have_received_sample_ = false;
     have_last_good_msg_ = false;
     snapshot_written_ = false;
@@ -274,7 +288,7 @@ private:
   bool snapshot_written_{false};
   static constexpr unsigned int kMaxSnapshotAttempts = 3U;
   unsigned int snapshot_attempts_{0U};
-  bool node_fault_latched_{false};
+  OdomFault node_fault_{OdomFault::kNone};
   OdomSample last_received_sample_{};
   nav_msgs::msg::Odometry last_good_msg_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr trusted_pub_;

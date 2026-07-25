@@ -25,6 +25,7 @@ def _explicit_finite_float(context, name: str) -> float:
 
 def _launch_nodes(context):
     config_file = LaunchConfiguration("config_file")
+    snapshot_directory = LaunchConfiguration("odom_snapshot_directory")
     publish_tf = LaunchConfiguration("publish_lidar_static_tf")
     enabled = IfCondition(publish_tf).evaluate(context)
     extrinsic_parameters = {"extrinsics_valid": enabled}
@@ -106,7 +107,10 @@ def _launch_nodes(context):
             executable="odom_guard_node",
             name="odom_guard",
             output="screen",
-            parameters=[config_file],
+            parameters=[
+                config_file,
+                {"snapshot_directory": snapshot_directory},
+            ],
         ),
         Node(
             package="ugv_subject2_mvp",
@@ -126,6 +130,10 @@ def generate_launch_description() -> LaunchDescription:
             default_value=PathJoinSubstitution(
                 [FindPackageShare("ugv_subject2_bringup"), "config", "subject2.yaml"]
             ),
+        ),
+        DeclareLaunchArgument(
+            "odom_snapshot_directory",
+            default_value="/home/sunrise/.ros/ugv_mvp",
         ),
         DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
         DeclareLaunchArgument("lidar_extrinsics_provenance", default_value=""),

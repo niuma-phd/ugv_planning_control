@@ -7,6 +7,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
+#include "ugv_localization_mvp/ros_time.hpp"
 #include "ugv_localization_mvp/transform_math.hpp"
 
 namespace ugv_localization_mvp
@@ -49,6 +50,11 @@ private:
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
     if (!extrinsics_valid_) {return;}
+    if (!positiveRosTimeToNanoseconds(msg->header.stamp)) {
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 2000, "raw odom timestamp is invalid; dropping");
+      return;
+    }
     if (msg->header.frame_id != raw_world_frame_ || msg->child_frame_id != raw_lidar_frame_) {
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 2000,

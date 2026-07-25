@@ -1,114 +1,95 @@
-# UGV Planning and Control MVP
+# 越野车规划控制 MVP
 
-ROS 2 Humble MVP for a two-sided differential-drive tracked vehicle. Work in
-this repository directory; the surrounding `越野车规划控制/` tree is read-only
-reference material.
+面向 ROS 2 Humble 与两轮差速履带车的最小可运行规划控制仓库。当前优先保障科目二闭环，同时保留科目一基于 Horizon 点云的局部避障闭环。仓库外层的 `越野车规划控制/` 目录仅作为背景资料，不属于本代码仓库。
 
-## Current product direction
+## 当前闭环
 
-- **Subject 2 first:** Horizon PointCloud2 plus the existing LIO with
-  `ScanRegistration.msg_type=1`, odom guarding, temporary identity
-  `map→odom`, and Pure Pursuit.
-- **Final Subject 2 command:** `/cmd_vel`, `geometry_msgs/msg/Twist`;
-  `linear.x` is m/s forward and `angular.z` is rad/s left turn.
-- **Downstream boundary:** the base converts body `v/omega` to left/right track
-  actuation and independently enforces its hardware watchdog.
-- **Subject 1 minimum loop:** Horizon PointCloud2 stays active; the stack
-  transforms it into `base_link`, extracts obstacle cells, and atomically
-  selects either the other team's `/subject1/nominal_cmd_vel` or a safe local
-  avoidance command for final `/cmd_vel`.
-- **Subject 1 fails closed:** blocked, stale, non-finite, non-planar, or
-  otherwise invalid selected input produces zero `/cmd_vel`.
-- **Upstream unknown:** `/subject2/path` is canonical input only. No partner
-  protocol, deployment form, global pose, or update behavior is assumed.
+### 科目二：自主导航
 
-The identity `map→odom` profile is only for a reviewed closed-course path whose
-origin and axes already match odometry, and applies only to Subject 2. Subject 1
-starts its manager uninitialized and publishes no `map→odom` until an explicit
-reviewed update arrives; its local `base_link` loop does not require that
-transform.
+`Horizon PointCloud2 + IMU → LIO → 里程计适配/保护 → Pure Pursuit → /cmd_vel`
 
-## Repository layout
+- 定位使用现有 LIO，保护后的里程计为 `/localization/trusted_odom`。
+- 全局路径输入为 `/subject2/path`。
+- 当前起步假设是 `map` 与 `odom` 重合，仅适用于已确认路径原点和坐标轴一致的场地。
+- 最终命令为 `geometry_msgs/msg/Twist`：`linear.x` 单位 m/s，`angular.z` 单位 rad/s。
 
-```text
-src/          ROS 2 packages
-workstreams/  one roadmap per Codex session
-docs/         architecture, interfaces, launch, testing, and gates
-scripts/      repository and RDK verification helpers
-dependencies/ pinned external source references
-```
+详见[科目二自主导航使用说明](docs/科目二_自主导航使用说明.md)。
 
-## Build and fixture smoke
+### 科目一：局部避障
+
+`Horizon PointCloud2 → 机体系障碍物 → 局部轨迹搜索 → 名义命令/避障命令仲裁 → /cmd_vel`
+
+- 无相关障碍物时透传合作方的 `/subject1/nominal_cmd_vel`。
+- 有相关障碍物时，由局部避障取得控制权。
+- 障碍物阻塞、输入超时或数据非法时，最终命令归零。
+- 科目一启动时不默认发布 `map→odom`，必须在获得经审核的对齐结果后显式更新。
+
+详见[科目一局部避障使用说明](docs/科目一_局部避障使用说明.md)。
+
+## 独立构建
+
+两个科目使用独立的 `build/install/log` 目录，互不覆盖；生产构建不包含测试工具包 `ugv_mvp_tools`。
 
 ```bash
+# 科目二最小包：
+# ugv_localization_mvp ugv_subject2_mvp ugv_subject2_bringup
+scripts/build_subject2.sh --clean
+source install_subject2/setup.bash
+
+# 科目一最小包：
+# ugv_localization_mvp ugv_subject1_perception_mvp
+# ugv_subject1_avoidance_mvp ugv_subject1_bringup
+scripts/build_subject1.sh --clean
+source install_subject1/setup.bash
+```
+
+构建产物分别位于：
+
+- 科目二：`build_subject2/`、`install_subject2/`、`log_subject2/`
+- 科目一：`build_subject1/`、`install_subject1/`、`log_subject1/`
+
+具体启动命令、参数、话题检查、TF 检查与调试步骤都放在对应科目的使用说明中。
+
+## 仓库结构
+
+```text
+src/           ROS 2 功能包
+scripts/       独立构建、仓库校验和离线夹具脚本
+docs/          两科使用说明与实车接口/待办
+dependencies/  外部源码版本记录
+artifacts/     外部大文件的记录规则
+```
+
+## 开发验证
+
+```bash
+python3 scripts/verify_repository.py
+
 source /opt/ros/humble/setup.bash
 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 source install/setup.bash
 colcon test --event-handlers console_cohesion+
 colcon test-result --verbose
-python3 scripts/verify_repository.py
+
+# 夹具只发布到 /fixture/cmd_vel，不授权真实车辆输出
 ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 ROS_DOMAIN_ID=174 scripts/run_fixture_smoke.sh subject1
 ```
 
-Fixtures remap the final command to `/fixture/cmd_vel` and never authorize real
-vehicle output.
+## 文档
 
-## Subject 2 launch
+- [科目二自主导航：代码逻辑、构建、启动与调试](docs/科目二_自主导航使用说明.md)
+- [科目一局部避障：代码逻辑、构建、启动与调试](docs/科目一_局部避障使用说明.md)
+- [实车接口、TF、测量回填与剩余待办](docs/实车接口与待办.md)
 
-The one-command wrapper starts the Horizon PointCloud2 driver, scopes
-`msg_type=1` to LIO, and starts the local stack:
+## 安全边界
 
-```bash
-ros2 launch ugv_mvp_bringup subject2_horizon.launch.py \
-  driver_config:=/absolute/path/to/validated_horizon_whitelist.json \
-  driver_allow_auto_discovery:=false \
-  publish_lidar_static_tf:=true \
-  lidar_extrinsics_provenance:=<APPROVED_RECORD_ID> \
-  base_to_lidar_x:=<M> base_to_lidar_y:=<M> base_to_lidar_z:=<M> \
-  base_to_lidar_roll:=<RAD> base_to_lidar_pitch:=<RAD> base_to_lidar_yaw:=<RAD>
-```
+本仓库完成的是软件 MVP 与离线/断执行器验证，不等于实车放行。以下条件未满足时，禁止发送非零实车控制：
 
-Those placeholders must be replaced by approved measurements. For local-only or
-partially externalized startup, use the layered commands in
-[TESTING_AND_TUNING.md](docs/TESTING_AND_TUNING.md).
-The packaged driver config is automatic-discovery first-use material; it is not
-the production whitelist.
+1. 雷达白名单、雷达到 `base_link` 的实测静态 TF 及记录编号已经审核；
+2. 车辆尺寸、速度、转向、制动距离和命令延迟已测量并回填；
+3. `/cmd_vel` 只有一个最终发布者，底盘侧独立看门狗有效；
+4. 断定位、断点云、输入超时、非法数值和急停测试均在断执行器条件下通过；
+5. 获得现场负责人批准后，才可按限速参数进行低速测试。
 
-## Subject 1 launch
-
-`subject1_horizon.launch.py` starts the same Horizon PointCloud2 and LIO
-external layers, scopes `msg_type=1`, isolates raw LIO TF, and starts the local
-perception/avoidance selector. Pass the independently approved Horizon
-extrinsic exactly as shown for Subject 2:
-
-```bash
-ros2 launch ugv_mvp_bringup subject1_horizon.launch.py \
-  driver_config:=/absolute/path/to/validated_horizon_whitelist.json \
-  driver_allow_auto_discovery:=false \
-  publish_lidar_static_tf:=true \
-  lidar_extrinsics_provenance:=<APPROVED_RECORD_ID> \
-  base_to_lidar_x:=<M> base_to_lidar_y:=<M> base_to_lidar_z:=<M> \
-  base_to_lidar_roll:=<RAD> base_to_lidar_pitch:=<RAD> base_to_lidar_yaw:=<RAD>
-```
-
-The partner supplies fresh planar `geometry_msgs/msg/Twist` commands on
-`/subject1/nominal_cmd_vel` and fresh `base_link` waypoints on
-`/subject1/next_waypoint_base`. The Subject 1 launch must not run concurrently
-with another `/cmd_vel` publisher.
-
-## Documentation
-
-- [Architecture](docs/ARCHITECTURE.md)
-- [ROS interfaces](docs/INTERFACES.md)
-- [Testing, launch, and tuning](docs/TESTING_AND_TUNING.md)
-- [Roadmap](docs/ROADMAP.md)
-- [Known gaps and field gates](docs/KNOWN_GAPS.md)
-- [Parallel Codex workflow](docs/CODEX_PARALLEL_WORKFLOW.md)
-
-## Safety status
-
-The software MVP has fixture evidence but is **not approved for non-zero vehicle
-control**. Close the applicable Subject 1 or Subject 2 gates in
-[KNOWN_GAPS.md](docs/KNOWN_GAPS.md), keep actuators disconnected through fault
-testing, and obtain human field approval before any low-speed test.
+未闭合项和合作方输入要求统一记录在[实车接口与待办](docs/实车接口与待办.md)。

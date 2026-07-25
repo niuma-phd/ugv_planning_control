@@ -34,8 +34,8 @@ subjects on RDK S100. Subject 2 is always the first integration priority.
 
 ## Ownership
 
-Each implementation session owns exactly one package plus its matching
-`workstreams/<name>/` directory. Shared root files, CI, integration launch and
+Each implementation session owns exactly one package or one explicitly named
+file set. Shared root files, CI, localization, production bringup and
 cross-package interfaces are integration-owner only. Parallel agents must not
 edit the same package.
 
@@ -44,6 +44,8 @@ edit the same package.
 From the repository root:
 
 ```bash
+scripts/build_subject2.sh --clean
+scripts/build_subject1.sh --clean
 colcon build --cmake-args -DCMAKE_BUILD_TYPE=Release
 colcon test
 colcon test-result --verbose
@@ -69,4 +71,3 @@ Directive: <future warning>
 Tested: <fresh evidence>
 Not-tested: <known gap>
 ```
-

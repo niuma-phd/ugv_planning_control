@@ -126,7 +126,7 @@ fi
 
 LOG_FILE="${TMPDIR:-/tmp}/ugv_${MODE}_${ROS_DOMAIN_ID}.log"
 cd "${REPOSITORY_ROOT}"
-setsid ros2 launch ugv_mvp_bringup "${LAUNCH_FILE}" \
+setsid ros2 launch ugv_mvp_tools "${LAUNCH_FILE}" \
   "${LAUNCH_ARGUMENTS[@]}" >"${LOG_FILE}" 2>&1 &
 LAUNCH_PID=$!
 

@@ -1,8 +1,13 @@
-# External artifacts
+# 外部制品
 
-Do not commit rosbag2 databases, point clouds, videos, or large logs.
+不要把 rosbag2 数据库、点云、视频或大日志提交到 Git。
 
-For every external artifact, commit a small manifest under `docs/evidence/`
-containing its storage URI/path, SHA-256, acquisition date, vehicle/profile,
-software commits and capture parameters.
+需要保留实测数据时，将大文件存放到仓库外，并在本目录新增小型 Markdown 清单。清单至少记录：
 
+- 存储位置或 URI；
+- SHA-256；
+- 采集时间、车辆和场地配置；
+- 本仓库、雷达驱动与 LIO 的提交版本；
+- 关键采集参数及是否连接执行器。
+
+清单不得包含访问令牌、私钥、真实雷达识别码或其他敏感信息。

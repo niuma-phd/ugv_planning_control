@@ -34,14 +34,12 @@ def generate_launch_description() -> LaunchDescription:
     pointcloud_freeze_stamp_after_s = LaunchConfiguration(
         "pointcloud_freeze_stamp_after_s"
     )
-    pointcloud_scenario_after_s = LaunchConfiguration(
-        "pointcloud_scenario_after_s"
-    )
+    pointcloud_scenario_after_s = LaunchConfiguration("pointcloud_scenario_after_s")
     pointcloud_scenario_after = LaunchConfiguration("pointcloud_scenario_after")
     nominal_cmd_stop_after_s = LaunchConfiguration("nominal_cmd_stop_after_s")
     nominal_linear_x = LaunchConfiguration("nominal_linear_x")
     nominal_angular_z = LaunchConfiguration("nominal_angular_z")
-    bringup_share = FindPackageShare("ugv_mvp_bringup")
+    bringup_share = FindPackageShare("ugv_subject1_bringup")
     production = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             PathJoinSubstitution([bringup_share, "launch", "subject1.launch.py"])
@@ -57,12 +55,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "pointcloud_freeze_stamp_after_s", default_value="-1.0"
             ),
-            DeclareLaunchArgument(
-                "pointcloud_scenario_after_s", default_value="-1.0"
-            ),
-            DeclareLaunchArgument(
-                "pointcloud_scenario_after", default_value="none"
-            ),
+            DeclareLaunchArgument("pointcloud_scenario_after_s", default_value="-1.0"),
+            DeclareLaunchArgument("pointcloud_scenario_after", default_value="none"),
             DeclareLaunchArgument("nominal_cmd_stop_after_s", default_value="-1.0"),
             DeclareLaunchArgument("nominal_linear_x", default_value="0.23"),
             DeclareLaunchArgument("nominal_angular_z", default_value="-0.07"),
@@ -129,6 +123,6 @@ def generate_launch_description() -> LaunchDescription:
                         ],
                     ),
                 ]
-            )
+            ),
         ]
     )

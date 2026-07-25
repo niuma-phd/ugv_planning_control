@@ -19,7 +19,12 @@ jobs:
           rosdep install --from-paths src --ignore-src --rosdistro humble -r -y
       - name: Verify repository
         run: python3 scripts/verify_repository.py
-      - name: Build
+      - name: Build subjects independently
+        shell: bash
+        run: |
+          scripts/build_subject2.sh --clean
+          scripts/build_subject1.sh --clean
+      - name: Build complete development workspace
         shell: bash
         run: |
           source /opt/ros/humble/setup.bash
@@ -31,4 +36,3 @@ jobs:
           source install/setup.bash
           colcon test --event-handlers console_cohesion+
           colcon test-result --verbose
-

@@ -31,9 +31,9 @@ def _launch_nodes(context):
     static_tf_nodes = []
 
     if enabled:
-        provenance = LaunchConfiguration("lidar_extrinsics_provenance").perform(
-            context
-        ).strip()
+        provenance = (
+            LaunchConfiguration("lidar_extrinsics_provenance").perform(context).strip()
+        )
         if not provenance:
             raise RuntimeError(
                 "lidar_extrinsics_provenance is required when lidar extrinsics "
@@ -102,16 +102,16 @@ def _launch_nodes(context):
             parameters=[config_file],
         ),
         Node(
-            package="ugv_subject1_perception_mvp",
-            executable="obstacle_detector_node",
-            name="obstacle_detector_node",
+            package="ugv_localization_mvp",
+            executable="odom_guard_node",
+            name="odom_guard",
             output="screen",
             parameters=[config_file],
         ),
         Node(
-            package="ugv_subject1_avoidance_mvp",
-            executable="local_avoidance_node",
-            name="local_avoidance_node",
+            package="ugv_subject2_mvp",
+            executable="waypoint_controller_node",
+            name="waypoint_controller_node",
             output="screen",
             parameters=[config_file],
         ),
@@ -124,7 +124,7 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument(
             "config_file",
             default_value=PathJoinSubstitution(
-                [FindPackageShare("ugv_mvp_bringup"), "config", "subject1.yaml"]
+                [FindPackageShare("ugv_subject2_bringup"), "config", "subject2.yaml"]
             ),
         ),
         DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),

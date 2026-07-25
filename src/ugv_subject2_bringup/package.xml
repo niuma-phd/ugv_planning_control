@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="3">
-  <name>ugv_mvp_bringup</name>
+  <name>ugv_subject2_bringup</name>
   <version>0.1.0</version>
-  <description>Launch and conservative parameter profiles for the UGV MVP.</description>
+  <description>Production launch and conservative parameters for Subject 2 autonomous navigation.</description>
   <maintainer email="xcxc@nuaa.com">xcc</maintainer>
   <license>Apache-2.0</license>
 
@@ -13,9 +13,6 @@
   <exec_depend>tf2_ros</exec_depend>
   <exec_depend>ugv_localization_mvp</exec_depend>
   <exec_depend>ugv_subject2_mvp</exec_depend>
-  <exec_depend>ugv_subject1_perception_mvp</exec_depend>
-  <exec_depend>ugv_subject1_avoidance_mvp</exec_depend>
-  <exec_depend>ugv_mvp_tools</exec_depend>
   <exec_depend>livox_ros2_driver_bringup</exec_depend>
   <exec_depend>lio_livox</exec_depend>
 

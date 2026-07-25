@@ -2,6 +2,9 @@
 build/
 install/
 log/
+build_subject*/
+install_subject*/
+log_subject*/
 .colcon/
 
 # CMake and compiled output
@@ -44,4 +47,3 @@ bags/
 data/
 artifacts/*
 !artifacts/README.md
-

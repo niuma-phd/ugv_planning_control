@@ -3,6 +3,7 @@
 #include <stdexcept>
 #include <cmath>
 #include <memory>
+#include <limits>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -32,11 +33,16 @@ public:
     require_odom_invalid_for_update_ = declare_parameter<bool>(
       "require_odom_invalid_for_update", auto_align_);
     path_segment_epsilon_m_ = declare_parameter<double>("path_segment_epsilon_m", 0.05);
+    update_max_age_sec_ = declare_parameter<double>("update_max_age_sec", 1.0);
+    update_future_tolerance_sec_ = declare_parameter<double>(
+      "update_future_tolerance_sec", 0.1);
     const double publish_rate_hz = declare_parameter<double>("publish_rate_hz", 20.0);
     if (map_frame_.empty() || odom_frame_.empty() || base_frame_.empty() ||
       map_frame_ == odom_frame_ || map_frame_ == base_frame_ || odom_frame_ == base_frame_ ||
       !std::isfinite(publish_rate_hz) || !std::isfinite(path_segment_epsilon_m_) ||
-      publish_rate_hz <= 0.0 || path_segment_epsilon_m_ <= 0.0)
+      !std::isfinite(update_max_age_sec_) || !std::isfinite(update_future_tolerance_sec_) ||
+      publish_rate_hz <= 0.0 || path_segment_epsilon_m_ <= 0.0 ||
+      update_max_age_sec_ <= 0.0 || update_future_tolerance_sec_ < 0.0)
     {
       throw std::invalid_argument("map/odom/base frames and finite positive rates are required");
     }
@@ -56,8 +62,10 @@ public:
     transform_ready_ = declare_parameter<bool>("initial_transform_valid", !auto_align_);
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    transform_pub_ = create_publisher<geometry_msgs::msg::TransformStamped>(
+      "/localization/map_odom", rclcpp::QoS(1).reliable().transient_local());
     update_sub_ = create_subscription<geometry_msgs::msg::TransformStamped>(
-      "/localization/map_odom_update", rclcpp::QoS(10),
+      "/localization/map_odom_update", rclcpp::QoS(10).reliable(),
       std::bind(&MapOdomManagerNode::onUpdate, this, std::placeholders::_1));
     odom_valid_sub_ = create_subscription<std_msgs::msg::Bool>(
       "/localization/odom_valid", rclcpp::QoS(1).reliable().transient_local(),
@@ -127,7 +135,12 @@ private:
 
   void onUpdate(const geometry_msgs::msg::TransformStamped::SharedPtr msg)
   {
+    const auto stamp_ns = positiveRosTimeToNanoseconds(msg->header.stamp);
+    const double age_sec = stamp_ns ?
+      static_cast<double>(now().nanoseconds() - *stamp_ns) / 1.0e9 :
+      std::numeric_limits<double>::infinity();
     if (msg->header.frame_id != map_frame_ || msg->child_frame_id != odom_frame_ ||
+      !stamp_ns || age_sec > update_max_age_sec_ || age_sec < -update_future_tolerance_sec_ ||
       !finiteAndNormalized(msg->transform))
     {
       RCLCPP_ERROR(get_logger(), "rejected invalid or frame-mismatched map_odom_update");
@@ -160,6 +173,7 @@ private:
     if (!transform_ready_) {return;}
     transform_.header.stamp = now();
     tf_broadcaster_->sendTransform(transform_);
+    transform_pub_->publish(transform_);
   }
 
   std::string map_frame_;
@@ -172,11 +186,14 @@ private:
   bool odom_valid_{false};
   bool odom_valid_received_{false};
   double path_segment_epsilon_m_{0.05};
+  double update_max_age_sec_{1.0};
+  double update_future_tolerance_sec_{0.1};
   std::mutex mutex_;
   geometry_msgs::msg::TransformStamped transform_;
   std::optional<PathStart> path_start_;
   std::optional<geometry_msgs::msg::Pose> first_odom_pose_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
+  rclcpp::Publisher<geometry_msgs::msg::TransformStamped>::SharedPtr transform_pub_;
   rclcpp::Subscription<geometry_msgs::msg::TransformStamped>::SharedPtr update_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr odom_valid_sub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;

@@ -23,6 +23,7 @@ find_package(tf2_geometry_msgs REQUIRED)
 
 add_library(${PROJECT_NAME}_core
   src/odom_guard_core.cpp
+  src/recovery_core.cpp
   src/ros_time.cpp
   src/transform_math.cpp
 )
@@ -45,11 +46,17 @@ add_executable(odom_guard_node src/odom_guard_node.cpp)
 target_link_libraries(odom_guard_node ${PROJECT_NAME}_core)
 ament_target_dependencies(odom_guard_node rclcpp nav_msgs std_msgs std_srvs)
 
+add_executable(recovery_coordinator_node src/recovery_coordinator_node.cpp)
+target_link_libraries(recovery_coordinator_node ${PROJECT_NAME}_core)
+ament_target_dependencies(
+  recovery_coordinator_node rclcpp nav_msgs geometry_msgs std_msgs std_srvs tf2 tf2_geometry_msgs)
+
 install(TARGETS
   ${PROJECT_NAME}_core
   lio_odom_adapter_node
   map_odom_manager_node
   odom_guard_node
+  recovery_coordinator_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})
@@ -65,6 +72,9 @@ if(BUILD_TESTING)
   ament_add_gtest(test_ros_time test/test_ros_time.cpp)
   target_link_libraries(test_ros_time ${PROJECT_NAME}_core)
   ament_target_dependencies(test_ros_time builtin_interfaces)
+  ament_add_gtest(test_recovery_core test/test_recovery_core.cpp)
+  target_link_libraries(test_recovery_core ${PROJECT_NAME}_core)
+  ament_target_dependencies(test_recovery_core geometry_msgs tf2 tf2_geometry_msgs)
 endif()
 
 ament_export_include_directories(include)

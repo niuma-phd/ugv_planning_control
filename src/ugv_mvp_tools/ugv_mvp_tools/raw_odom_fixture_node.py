@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import copy
 import math
 
 import rclpy
 from nav_msgs.msg import Odometry
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from std_msgs.msg import UInt32, UInt64
 
 from .common import integrate_pose
 
@@ -28,6 +31,9 @@ class RawOdomFixtureNode(Node):
         self.declare_parameter("jump_distance_m", 5.0)
         self.declare_parameter("stamp_mode_after_s", -1.0)
         self.declare_parameter("stamp_mode_after", "current")
+        self.declare_parameter("resume_on_lio_generation", False)
+        self.declare_parameter("restarted_origin_x_m", 20.0)
+        self.declare_parameter("queued_old_samples_after_generation", 0)
 
         rate_hz = float(self.get_parameter("rate_hz").value)
         if rate_hz <= 0.0:
@@ -46,14 +52,89 @@ class RawOdomFixtureNode(Node):
         self.y_m = 0.0
         self.yaw_rad = 0.0
         self.jump_injected = False
+        self.lio_generation = 0
+        self.queued_old_samples_remaining = 0
+        self.queued_old_sample_index = 0
+        self.restart_started_ns: int | None = None
+        self.queued_old_sample_count = int(
+            self.get_parameter("queued_old_samples_after_generation").value
+        )
+        if self.queued_old_sample_count < 0:
+            raise ValueError("queued_old_samples_after_generation must be non-negative")
+        self.last_pre_restart_message = None
+        self.resume_on_lio_generation = bool(
+            self.get_parameter("resume_on_lio_generation").value
+        )
+        if self.resume_on_lio_generation:
+            generation_qos = QoSProfile(
+                depth=1,
+                reliability=ReliabilityPolicy.RELIABLE,
+                durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            )
+            self.create_subscription(
+                UInt32,
+                "/localization/lio_generation",
+                self.on_lio_generation,
+                generation_qos,
+            )
+            self.create_subscription(
+                UInt64,
+                "/fixture/restart_started_ns",
+                self.on_restart_started,
+                generation_qos,
+            )
         self.timer = self.create_timer(self.period_s, self.tick)
+
+    def on_lio_generation(self, message: UInt32) -> None:
+        generation = int(message.data)
+        if generation <= self.lio_generation:
+            return
+        self.lio_generation = generation
+        self.queued_old_samples_remaining = self.queued_old_sample_count
+        self.queued_old_sample_index = 0
+        self.x_m = float(self.get_parameter("restarted_origin_x_m").value)
+        self.y_m = 0.0
+        self.yaw_rad = 0.0
+        self.jump_injected = False
+        self.get_logger().info(
+            f"Simulated LIO generation {generation} at new odom origin x={self.x_m:.3f}"
+        )
+
+    def on_restart_started(self, message: UInt64) -> None:
+        stamp_ns = int(message.data)
+        if stamp_ns > 0:
+            self.restart_started_ns = stamp_ns
 
     def tick(self) -> None:
         elapsed_s = (
             self.get_clock().now().nanoseconds - self.started_ns
         ) / 1.0e9
         stop_after_s = float(self.get_parameter("stop_after_s").value)
-        if stop_after_s >= 0.0 and elapsed_s >= stop_after_s:
+        if (
+            stop_after_s >= 0.0
+            and elapsed_s >= stop_after_s
+            and not (self.resume_on_lio_generation and self.lio_generation > 0)
+        ):
+            return
+
+        if (
+            self.queued_old_samples_remaining > 0
+            and self.last_pre_restart_message is not None
+        ):
+            if self.restart_started_ns is None:
+                return
+            queued = copy.deepcopy(self.last_pre_restart_message)
+            # These stamps are deliberately newer than the restart request but
+            # older than the fixture's 0.20 s service completion. They model
+            # old-process DDS backlog that arrives after generation changes.
+            queued_stamp_ns = self.restart_started_ns + (
+                self.queued_old_sample_index + 1
+            ) * 1_000_000
+            queued.header.stamp.sec = queued_stamp_ns // 1_000_000_000
+            queued.header.stamp.nanosec = queued_stamp_ns % 1_000_000_000
+            self.publisher.publish(queued)
+            self.queued_old_sample_index += 1
+            self.queued_old_samples_remaining -= 1
             return
 
         self.x_m, self.y_m, self.yaw_rad = integrate_pose(
@@ -101,6 +182,8 @@ class RawOdomFixtureNode(Node):
         )
         try:
             self.publisher.publish(msg)
+            if self.lio_generation == 0:
+                self.last_pre_restart_message = copy.deepcopy(msg)
         except Exception:
             if not rclpy.ok():
                 return

@@ -113,6 +113,13 @@ def _launch_nodes(context):
             ],
         ),
         Node(
+            package="ugv_localization_mvp",
+            executable="recovery_coordinator_node",
+            name="recovery_coordinator",
+            output="screen",
+            parameters=[config_file],
+        ),
+        Node(
             package="ugv_subject2_mvp",
             executable="waypoint_controller_node",
             name="waypoint_controller_node",

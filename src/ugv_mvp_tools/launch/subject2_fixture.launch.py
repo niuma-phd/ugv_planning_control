@@ -1,5 +1,6 @@
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, GroupAction, IncludeLaunchDescription
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node, SetRemap
@@ -15,7 +16,15 @@ def _isolated_remaps():
         "/localization/odom_valid",
         "/localization/last_trusted_odom",
         "/localization/map_odom_update",
+        "/localization/map_odom",
         "/localization/reset_odom_fault",
+        "/localization/gps_pose",
+        "/localization/gps_valid",
+        "/localization/navigation_enabled",
+        "/localization/recovery_state",
+        "/localization/restart_lio",
+        "/localization/lio_generation",
+        "/localization/lio_process_alive",
         "/subject2/path",
         "/subject2/target_point",
         "/cmd_vel",
@@ -42,6 +51,11 @@ def generate_launch_description() -> LaunchDescription:
     jump_distance_m = LaunchConfiguration("raw_odom_jump_distance_m")
     odom_stamp_mode_after_s = LaunchConfiguration("raw_odom_stamp_mode_after_s")
     odom_stamp_mode_after = LaunchConfiguration("raw_odom_stamp_mode_after")
+    raw_odom_linear_speed = LaunchConfiguration("raw_odom_linear_speed_mps")
+    queued_old_samples = LaunchConfiguration(
+        "raw_odom_queued_old_samples_after_generation"
+    )
+    recovery_enabled = LaunchConfiguration("recovery_fixture_enabled")
     bringup_share = FindPackageShare("ugv_subject2_bringup")
     production = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -85,10 +99,18 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument(
                 "raw_odom_stamp_mode_after", default_value="current"
             ),
+            DeclareLaunchArgument("raw_odom_linear_speed_mps", default_value="0.0"),
+            DeclareLaunchArgument(
+                "raw_odom_queued_old_samples_after_generation", default_value="0"
+            ),
             DeclareLaunchArgument(
                 "odom_snapshot_directory",
                 default_value="/tmp/ugv_subject2_fixture",
             ),
+            DeclareLaunchArgument("waypoint_file_enabled", default_value="false"),
+            DeclareLaunchArgument("waypoint_file", default_value=""),
+            DeclareLaunchArgument("recovery_fixture_enabled", default_value="false"),
+            DeclareLaunchArgument("recovery_scenario", default_value="success"),
             GroupAction(
                 [
                     *_isolated_remaps(),
@@ -96,6 +118,9 @@ def generate_launch_description() -> LaunchDescription:
                     Node(
                         package="ugv_mvp_tools",
                         executable="path_fixture_node",
+                        condition=UnlessCondition(
+                            LaunchConfiguration("waypoint_file_enabled")
+                        ),
                         parameters=[
                             {
                                 "production_mode": False,
@@ -120,6 +145,21 @@ def generate_launch_description() -> LaunchDescription:
                     ),
                     Node(
                         package="ugv_mvp_tools",
+                        executable="waypoint_file_publisher_node",
+                        condition=IfCondition(
+                            LaunchConfiguration("waypoint_file_enabled")
+                        ),
+                        parameters=[
+                            {
+                                "path_file": LaunchConfiguration("waypoint_file"),
+                                "topic": "/subject2/path",
+                                "frame_id": "map",
+                                "rate_hz": 5.0,
+                            }
+                        ],
+                    ),
+                    Node(
+                        package="ugv_mvp_tools",
                         executable="raw_odom_fixture_node",
                         parameters=[
                             {
@@ -127,7 +167,9 @@ def generate_launch_description() -> LaunchDescription:
                                 "topic": raw_odom_topic,
                                 "frame_id": raw_odom_frame_id,
                                 "child_frame_id": raw_odom_child_frame_id,
-                                "linear_speed_mps": 0.0,
+                                "linear_speed_mps": ParameterValue(
+                                    raw_odom_linear_speed, value_type=float
+                                ),
                                 "stop_after_s": ParameterValue(
                                     stop_after_s, value_type=float
                                 ),
@@ -141,6 +183,24 @@ def generate_launch_description() -> LaunchDescription:
                                     odom_stamp_mode_after_s, value_type=float
                                 ),
                                 "stamp_mode_after": odom_stamp_mode_after,
+                                "resume_on_lio_generation": ParameterValue(
+                                    recovery_enabled, value_type=bool
+                                ),
+                                "queued_old_samples_after_generation": ParameterValue(
+                                    queued_old_samples, value_type=int
+                                ),
+                                "restarted_origin_x_m": 20.0,
+                            }
+                        ],
+                    ),
+                    Node(
+                        package="ugv_mvp_tools",
+                        executable="recovery_fixture_node",
+                        condition=IfCondition(recovery_enabled),
+                        parameters=[
+                            {
+                                "production_mode": False,
+                                "scenario": LaunchConfiguration("recovery_scenario"),
                             }
                         ],
                     ),

@@ -3,7 +3,18 @@ project(ugv_subject2_bringup)
 
 find_package(ament_cmake REQUIRED)
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_pytest_test(test_lio_process_supervisor
+    test/test_lio_process_supervisor.py)
+endif()
+
 install(DIRECTORY launch config
-  DESTINATION share/${PROJECT_NAME})
+  DESTINATION share/${PROJECT_NAME}
+  PATTERN "__pycache__" EXCLUDE)
+
+install(PROGRAMS
+  scripts/lio_process_supervisor.py
+  DESTINATION lib/${PROJECT_NAME})
 
 ament_package()

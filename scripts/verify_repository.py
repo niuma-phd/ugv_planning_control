@@ -17,6 +17,27 @@ ACTIVE_PACKAGES = {
     "ugv_subject2_bringup",
     "ugv_subject2_mvp",
 }
+FIXTURE_MODES = {
+    "subject2",
+    "subject2_right",
+    "subject2_line",
+    "subject2_path_timeout",
+    "subject2_path_replay",
+    "subject2_path_wrong_frame",
+    "subject2_path_zero_stamp",
+    "subject2_path_negative_stamp",
+    "subject2_path_invalid_nanosec",
+    "subject2_path_empty",
+    "subject2_path_wrong_pose_frame",
+    "subject2_path_nonfinite",
+    "subject2_odom_timeout",
+    "subject2_odom_jump",
+    "subject2_odom_invalid_stamp",
+    "subject2_waypoint_file",
+    "subject2_recovery_success",
+    "subject2_recovery_no_gps",
+    "subject2_recovery_restart_failed",
+}
 IGNORED_DIRECTORY_PREFIXES = (
     ".git",
     ".omx",
@@ -209,10 +230,44 @@ def check_fixture_surface() -> None:
         "src/ugv_mvp_tools/launch/subject2_fixture.launch.py",
         "src/ugv_mvp_tools/ugv_mvp_tools/path_fixture_node.py",
         "src/ugv_mvp_tools/ugv_mvp_tools/raw_odom_fixture_node.py",
+        "src/ugv_mvp_tools/ugv_mvp_tools/recovery_fixture_node.py",
+        "src/ugv_mvp_tools/ugv_mvp_tools/waypoint_file_publisher_node.py",
         "scripts/run_fixture_smoke.sh",
         "scripts/verify_fixture_runtime.py",
     ):
         require(relative)
+
+    run_text = (ROOT / "scripts/run_fixture_smoke.sh").read_text(encoding="utf-8")
+    runtime_text = (ROOT / "scripts/verify_fixture_runtime.py").read_text(
+        encoding="utf-8"
+    )
+    ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    surfaces = {
+        "run script": set(re.findall(r"^  (subject2[A-Za-z0-9_]*)(?:\)|$)", run_text, re.MULTILINE)),
+        "runtime verifier": set(re.findall(r'^            "(subject2[A-Za-z0-9_]*)",$', runtime_text, re.MULTILINE)),
+        "CI": set(re.findall(r"run_fixture_smoke\.sh (subject2[A-Za-z0-9_]*)", ci_text)),
+    }
+    for surface, modes in surfaces.items():
+        if modes != FIXTURE_MODES:
+            ERRORS.append(
+                f"{surface} fixture modes {sorted(modes)}, expected {sorted(FIXTURE_MODES)}"
+            )
+
+    launch_text = (
+        ROOT / "src/ugv_mvp_tools/launch/subject2_fixture.launch.py"
+    ).read_text(encoding="utf-8")
+    for endpoint in (
+        "/localization/gps_pose",
+        "/localization/gps_valid",
+        "/localization/map_odom",
+        "/localization/navigation_enabled",
+        "/localization/recovery_state",
+        "/localization/restart_lio",
+        "/localization/lio_generation",
+        "/localization/lio_process_alive",
+    ):
+        if endpoint not in launch_text:
+            ERRORS.append(f"fixture launch is missing isolated endpoint {endpoint}")
 
 
 def check_markdown_links() -> None:

@@ -111,6 +111,40 @@ case "${MODE}" in
     )
     VERIFY_TIMEOUT="15.0"
     ;;
+  subject2_waypoint_file)
+    VERIFY_TIMEOUT="15.0"
+    ;;
+  subject2_recovery_success)
+    LAUNCH_ARGUMENTS+=(
+      "path_shape:=line"
+      "raw_odom_stop_after_s:=6.0"
+      "raw_odom_linear_speed_mps:=0.25"
+      "raw_odom_queued_old_samples_after_generation:=10"
+      "recovery_fixture_enabled:=true"
+      "recovery_scenario:=success"
+    )
+    VERIFY_TIMEOUT="20.0"
+    ;;
+  subject2_recovery_no_gps)
+    LAUNCH_ARGUMENTS+=(
+      "path_shape:=line"
+      "raw_odom_stop_after_s:=6.0"
+      "raw_odom_linear_speed_mps:=0.25"
+      "recovery_fixture_enabled:=true"
+      "recovery_scenario:=no_gps"
+    )
+    VERIFY_TIMEOUT="33.0"
+    ;;
+  subject2_recovery_restart_failed)
+    LAUNCH_ARGUMENTS+=(
+      "path_shape:=line"
+      "raw_odom_stop_after_s:=6.0"
+      "raw_odom_linear_speed_mps:=0.25"
+      "recovery_fixture_enabled:=true"
+      "recovery_scenario:=restart_failed"
+    )
+    VERIFY_TIMEOUT="16.0"
+    ;;
   *)
     cat >&2 <<'EOF'
 用法：
@@ -132,14 +166,32 @@ case "${MODE}" in
   subject2_odom_timeout
   subject2_odom_jump
   subject2_odom_invalid_stamp
+  subject2_waypoint_file
+  subject2_recovery_success
+  subject2_recovery_no_gps
+  subject2_recovery_restart_failed
 EOF
     exit 2
     ;;
 esac
 
-SNAPSHOT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ugv_subject2_fixture.XXXXXX")"
-SNAPSHOT="${SNAPSHOT_DIR}/last_good_subject2_odom.json"
-LAUNCH_ARGUMENTS+=("odom_snapshot_directory:=${SNAPSHOT_DIR}")
+FIXTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ugv_subject2_fixture.XXXXXX")"
+SNAPSHOT="${FIXTURE_DIR}/last_good_subject2_odom.json"
+LAUNCH_ARGUMENTS+=("odom_snapshot_directory:=${FIXTURE_DIR}")
+if [[ "${MODE}" == "subject2_waypoint_file" ]]; then
+  WAYPOINT_FILE="${FIXTURE_DIR}/left_turn.csv"
+  cat >"${WAYPOINT_FILE}" <<'EOF'
+x_m,y_m,z_m,yaw_rad
+0.0,0.0,0.0,0.0
+1.0,0.4,0.0,0.4
+2.0,1.0,0.0,0.7
+3.0,2.0,0.0,0.7
+EOF
+  LAUNCH_ARGUMENTS+=(
+    "waypoint_file_enabled:=true"
+    "waypoint_file:=${WAYPOINT_FILE}"
+  )
+fi
 LOG_FILE="${TMPDIR:-/tmp}/ugv_${MODE}_${ROS_DOMAIN_ID}.log"
 
 cd "${REPOSITORY_ROOT}"
@@ -169,7 +221,7 @@ cleanup_processes() {
 
 cleanup_all() {
   cleanup_processes
-  rm -rf -- "${SNAPSHOT_DIR}"
+  rm -rf -- "${FIXTURE_DIR}"
 }
 trap cleanup_all EXIT INT TERM
 
@@ -181,7 +233,7 @@ python3 scripts/verify_fixture_runtime.py "${VERIFY_MODE}" \
 
 cleanup_processes
 trap - EXIT INT TERM
-rm -rf -- "${SNAPSHOT_DIR}"
+rm -rf -- "${FIXTURE_DIR}"
 
 # Container PID 1 may reap exited grandchildren after this script returns.
 # A zombie has no executable process left; only non-zombie session members

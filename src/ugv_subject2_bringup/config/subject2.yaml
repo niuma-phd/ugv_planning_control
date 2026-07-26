@@ -44,6 +44,44 @@ odom_guard:
     max_translation_jump_m: 1.50
     max_yaw_jump_rad: 0.80
 
+recovery_coordinator:
+  ros__parameters:
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    heartbeat_rate_hz: 10.0
+    input_timeout_sec: 1.0
+    future_stamp_tolerance_sec: 0.10
+    # Each recovery phase is bounded. A timeout leaves navigation disabled
+    # until the complete localization stack is restarted manually.
+    # The service budget covers supervisor TERM (5 s), KILL (5 s), LIO
+    # startup grace (3 s), and scheduling margin.
+    recovery_timeout_sec: 20.0
+    service_timeout_sec: 15.0
+    # Avoid treating odom_guard's startup false sample as a real LIO fault.
+    # Must remain shorter than input_timeout_sec so a real startup fault still
+    # has a fresh last-trusted anchor when recovery begins.
+    startup_invalid_grace_sec: 0.25
+    gps_sample_count: 5
+    odom_sample_count: 5
+    startup_odom_samples: 5
+    max_recovery_attempts: 1
+    # Candidate quality gates. Replace them from the approved GPS/global-pose
+    # source and stationary field measurements before vehicle use.
+    max_gps_position_covariance: 4.0
+    max_gps_yaw_covariance: 0.25
+    max_gps_window_position_span_m: 0.75
+    max_gps_window_yaw_span_rad: 0.35
+    max_odom_window_position_span_m: 0.30
+    max_odom_window_yaw_span_rad: 0.20
+    max_alignment_stamp_skew_sec: 0.20
+    max_anchor_correction_m: 10.0
+    max_anchor_correction_yaw_rad: 1.57
+    echo_translation_tolerance_m: 0.02
+    echo_yaw_tolerance_rad: 0.02
+    final_position_tolerance_m: 1.0
+    final_yaw_tolerance_rad: 0.35
+
 waypoint_controller_node:
   ros__parameters:
     control_rate_hz: 20.0
@@ -64,6 +102,7 @@ waypoint_controller_node:
     # Fixture publisher refreshes at 1 Hz. Replace with the real upstream rule.
     path_timeout_sec: 5.0
     valid_timeout_sec: 0.50
+    enable_timeout_sec: 0.50
     transform_timeout_sec: 0.05
     base_frame: base_link
     expected_path_frame: map

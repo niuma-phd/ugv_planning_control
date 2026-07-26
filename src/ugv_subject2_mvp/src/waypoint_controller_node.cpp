@@ -62,6 +62,7 @@ public:
     odom_timeout_sec_ = declare_parameter("odom_timeout_sec", 0.3);
     path_timeout_sec_ = declare_parameter("path_timeout_sec", 5.0);
     valid_timeout_sec_ = declare_parameter("valid_timeout_sec", 0.5);
+    enable_timeout_sec_ = declare_parameter("enable_timeout_sec", 0.5);
     transform_timeout_sec_ = declare_parameter("transform_timeout_sec", 0.05);
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     expected_path_frame_ = declare_parameter<std::string>("expected_path_frame", "map");
@@ -72,8 +73,10 @@ public:
     if (base_frame_.empty() || expected_path_frame_.empty() ||
       !std::isfinite(odom_timeout_sec_) ||
       !std::isfinite(path_timeout_sec_) || !std::isfinite(valid_timeout_sec_) ||
+      !std::isfinite(enable_timeout_sec_) ||
       !std::isfinite(transform_timeout_sec_) || odom_timeout_sec_ <= 0.0 ||
       path_timeout_sec_ <= 0.0 || valid_timeout_sec_ <= 0.0 ||
+      enable_timeout_sec_ <= 0.0 ||
       transform_timeout_sec_ < 0.0)
     {
       throw std::invalid_argument(
@@ -93,9 +96,21 @@ public:
         if (!odom_valid_) {
           odom_.reset();
           controller_.reset_progress();
+          publish_stop();
         }
         valid_received_ = true;
         valid_received_at_ = std::chrono::steady_clock::now();
+      });
+    navigation_enable_sub_ = create_subscription<std_msgs::msg::Bool>(
+      "/localization/navigation_enabled", rclcpp::QoS(1).reliable().transient_local(),
+      [this](std_msgs::msg::Bool::ConstSharedPtr message) {
+        navigation_enabled_ = message->data;
+        navigation_enable_received_ = true;
+        navigation_enable_received_at_ = std::chrono::steady_clock::now();
+        if (!navigation_enabled_) {
+          controller_.reset_progress();
+          publish_stop();
+        }
       });
     path_sub_ = create_subscription<nav_msgs::msg::Path>(
       "/subject2/path", rclcpp::QoS(1).reliable(),
@@ -217,9 +232,11 @@ private:
   bool build_input(ControlInput & input, std::string & path_frame)
   {
     if (!odom_ || !path_ || path_->poses.empty() || !valid_received_ || !odom_valid_ ||
+      !navigation_enable_received_ || !navigation_enabled_ ||
       !recent(odom_received_at_, odom_timeout_sec_) ||
       !recent(path_received_at_, path_timeout_sec_) ||
-      !recent(valid_received_at_, valid_timeout_sec_))
+      !recent(valid_received_at_, valid_timeout_sec_) ||
+      !recent(navigation_enable_received_at_, enable_timeout_sec_))
     {
       return false;
     }
@@ -302,21 +319,26 @@ private:
   nav_msgs::msg::Path::ConstSharedPtr path_;
   bool odom_valid_{false};
   bool valid_received_{false};
+  bool navigation_enabled_{false};
+  bool navigation_enable_received_{false};
   std::chrono::steady_clock::time_point odom_received_at_{};
   std::chrono::steady_clock::time_point path_received_at_{};
   std::chrono::steady_clock::time_point valid_received_at_{};
+  std::chrono::steady_clock::time_point navigation_enable_received_at_{};
   std::optional<std::int64_t> last_path_stamp_ns_;
 
   double control_rate_hz_{20.0};
   double odom_timeout_sec_{0.3};
   double path_timeout_sec_{5.0};
   double valid_timeout_sec_{0.5};
+  double enable_timeout_sec_{0.5};
   double transform_timeout_sec_{0.05};
   std::string base_frame_{"base_link"};
   std::string expected_path_frame_{"map"};
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;
+  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr navigation_enable_sub_;
   rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_pub_;

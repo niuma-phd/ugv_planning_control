@@ -8,11 +8,12 @@
 
 ### 科目二：自主导航
 
-`Horizon PointCloud2 + IMU → LIO → 里程计适配/保护 → Pure Pursuit → /cmd_vel`
+`Horizon PointCloud2 + IMU → 受管 LIO → 里程计适配/保护 → Pure Pursuit → /cmd_vel`
 
 - 定位使用现有 LIO，保护后的里程计为 `/localization/trusted_odom`。
-- 全局路径输入为 `/subject2/path`。
-- 当前起步假设是 `map` 与 `odom` 重合，仅适用于已确认路径原点和坐标轴一致的场地。
+- 全局路径输入为 `/subject2/path`；开发测试可用 CSV 航点文件通过独立工具节点以 1 Hz 发布。
+- 当前起步假设 `map` 与 `odom` 重合；LIO 故障后，恢复协调器只有在新 GPS 全局位姿和重启后 LIO 里程计都稳定、`map→odom` 更新回显一致且保护器复位验证通过后，才重新允许行驶。
+- 恢复失败或超时进入 `ABORTED`，持续禁止导航；默认每个 `recovery_coordinator` 进程生命周期最多尝试 1 次。
 - 最终命令为 `geometry_msgs/msg/Twist`：`linear.x` 单位 m/s，`angular.z` 单位 rad/s。
 
 详见[科目二自主导航使用说明](docs/科目二_自主导航使用说明.md)。
@@ -54,9 +55,11 @@ source install/setup.bash
 colcon test --event-handlers console_cohesion+
 colcon test-result --verbose
 
-# 夹具只发布到 /fixture/cmd_vel，不授权真实车辆输出
+# fixture 只发布到 /fixture/cmd_vel，不授权真实车辆输出
 ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 ```
+
+CSV 航点发布器属于开发工具包 `ugv_mvp_tools`，不在生产 launch 中默认启动。完整编辑、启动、观察和停止命令见科目二使用说明。
 
 ## 文档
 
@@ -75,3 +78,5 @@ ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 5. 获得现场负责人批准后，才可按限速参数进行低速测试。
 
 未闭合项和合作方输入要求统一记录在[实车接口与待办](docs/实车接口与待办.md)。
+
+> **本轮验证边界**：RDK 离线，本轮未访问、未编译、未测试 RDK，也未做实车验收。GPS/LIO 恢复软件链和合成 fixture 已实现；真实 GPS 适配、真实 LIO/RDK 进程管理和实车参数仍待验证。

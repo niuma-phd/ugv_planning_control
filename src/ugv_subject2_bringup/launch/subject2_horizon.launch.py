@@ -1,23 +1,68 @@
-"""Bring up the real Horizon -> LIO -> Subject 2 MVP chain.
+"""Bring up the real Horizon -> managed LIO -> Subject 2 MVP chain.
 
 The Livox driver and LIO are kept as external packages.  This wrapper only
-connects their pinned launch files to the local subject2 bringup.  ``msg_type``
-is scoped to the LIO launch because the upstream launch predates its
-PointCloud2 entry and otherwise defaults ScanRegistration to CustomMsg.  Raw
-LIO TF is isolated from the canonical vehicle TF tree.
+connects their pinned launch files to the local subject2 bringup.  LIO runs in
+a dedicated child launch process owned by ``lio_process_supervisor`` so a
+recovery coordinator can restart exactly that process group.
 """
+
+import json
 
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
-    GroupAction,
     IncludeLaunchDescription,
+    OpaqueFunction,
 )
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import SetParameter, SetRemap
+from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
+
+
+def _lio_supervisor(context):
+    def value(name: str) -> str:
+        resolved = LaunchConfiguration(name).perform(context).strip()
+        if not resolved:
+            raise RuntimeError(f"{name} must not be empty when start_lio=true")
+        return resolved
+
+    command = [
+        "ros2",
+        "launch",
+        "ugv_subject2_bringup",
+        "managed_lio_horizon.launch.py",
+        f"lio_config:={value('lio_config')}",
+        f"lidar_topic:={value('lio_lidar_topic')}",
+        f"imu_topic:={value('lio_imu_topic')}",
+    ]
+    return [
+        Node(
+            package="ugv_subject2_bringup",
+            executable="lio_process_supervisor.py",
+            name="lio_process_supervisor",
+            output="screen",
+            parameters=[
+                {
+                    "command_json": json.dumps(command),
+                    "termination_timeout_sec": ParameterValue(
+                        LaunchConfiguration("lio_termination_timeout_sec"),
+                        value_type=float,
+                    ),
+                    "startup_grace_sec": ParameterValue(
+                        LaunchConfiguration("lio_startup_grace_sec"),
+                        value_type=float,
+                    ),
+                    "status_period_sec": ParameterValue(
+                        LaunchConfiguration("lio_status_period_sec"),
+                        value_type=float,
+                    ),
+                }
+            ],
+        )
+    ]
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -38,29 +83,6 @@ def generate_launch_description() -> LaunchDescription:
             "frame_id": "livox_frame",
             "allow_auto_discovery": LaunchConfiguration("driver_allow_auto_discovery"),
         }.items(),
-    )
-
-    # Keep the raw LIO world->livox_frame broadcaster out of the canonical TF
-    # tree, where base_link->livox_frame is the only approved parent.  The
-    # parameter override reaches ScanRegistration without modifying LIO.
-    lio = GroupAction(
-        [
-            SetRemap(src="/tf", dst="/lio_raw/tf"),
-            SetRemap(src="/tf_static", dst="/lio_raw/tf_static"),
-            SetParameter(name="msg_type", value=1),
-            IncludeLaunchDescription(
-                PythonLaunchDescriptionSource(
-                    PathJoinSubstitution([lio_share, "launch", "horizon.launch.py"])
-                ),
-                launch_arguments={
-                    "config_file": LaunchConfiguration("lio_config"),
-                    "lidar_topic": "/livox/lidar",
-                    "imu_topic": "/livox/imu",
-                    "use_rviz": "false",
-                }.items(),
-            ),
-        ],
-        condition=IfCondition(LaunchConfiguration("start_lio")),
     )
 
     subject2 = IncludeLaunchDescription(
@@ -109,6 +131,13 @@ def generate_launch_description() -> LaunchDescription:
                     [lio_share, "config", "horizon_config.yaml"]
                 ),
             ),
+            DeclareLaunchArgument("lio_lidar_topic", default_value="/livox/lidar"),
+            DeclareLaunchArgument("lio_imu_topic", default_value="/livox/imu"),
+            DeclareLaunchArgument(
+                "lio_termination_timeout_sec", default_value="5.0"
+            ),
+            DeclareLaunchArgument("lio_startup_grace_sec", default_value="3.0"),
+            DeclareLaunchArgument("lio_status_period_sec", default_value="0.5"),
             DeclareLaunchArgument(
                 "subject2_config",
                 default_value=PathJoinSubstitution(
@@ -128,7 +157,10 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("base_to_lidar_pitch", default_value=""),
             DeclareLaunchArgument("base_to_lidar_yaw", default_value=""),
             driver,
-            lio,
+            OpaqueFunction(
+                function=_lio_supervisor,
+                condition=IfCondition(LaunchConfiguration("start_lio")),
+            ),
             subject2,
         ]
     )

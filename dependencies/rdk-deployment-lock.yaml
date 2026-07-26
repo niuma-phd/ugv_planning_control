@@ -10,9 +10,9 @@ repositories:
     path_on_rdk: /home/sunrise/livox_driver
     commit: b1eda014241a9b54d7c7eaa556d35269ea7f5e8f
   LIO_Livox_ROS2:
-    path_on_rdk: /home/sunrise/ws_livox/src/ROS2_LIO_Livox
-    commit: fbfe521364f6f7daad61792ea761547bcfe4d956
+    path_on_rdk: /home/sunrise/ws_livox/production/src/ROS2_LIO_Livox
+    commit: 1d0d5cb224437ff1893f53f6ea587d8ac4fdfdfe
 notes:
   - The local development driver commit differs from the RDK deployment.
+  - The RDK production LIO commit differs from the local reference checkout.
   - Driver and LIO repositories are read-only dependencies for this project.
-

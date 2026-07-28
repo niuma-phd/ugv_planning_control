@@ -93,6 +93,9 @@ def generate_launch_description() -> LaunchDescription:
             "config_file": LaunchConfiguration("subject2_config"),
             "odom_snapshot_directory": LaunchConfiguration("odom_snapshot_directory"),
             "publish_lidar_static_tf": LaunchConfiguration("publish_lidar_static_tf"),
+            "lidar_extrinsics_valid": LaunchConfiguration(
+                "lidar_extrinsics_valid"
+            ),
             "lidar_extrinsics_provenance": LaunchConfiguration(
                 "lidar_extrinsics_provenance"
             ),
@@ -149,6 +152,10 @@ def generate_launch_description() -> LaunchDescription:
                 default_value="/home/sunrise/.ros/ugv_mvp",
             ),
             DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
+            DeclareLaunchArgument(
+                "lidar_extrinsics_valid",
+                default_value=LaunchConfiguration("publish_lidar_static_tf"),
+            ),
             DeclareLaunchArgument("lidar_extrinsics_provenance", default_value=""),
             DeclareLaunchArgument("base_to_lidar_x", default_value=""),
             DeclareLaunchArgument("base_to_lidar_y", default_value=""),

@@ -8,11 +8,12 @@
 
 ### 科目二：自主导航
 
-`Horizon PointCloud2 + IMU → 受管 LIO → 里程计适配/保护 → Pure Pursuit → /cmd_vel`
+`Horizon + IMU → LIO → 里程计适配/保护 → Pure Pursuit → /cmd_vel`
 
 - 定位使用现有 LIO，保护后的里程计为 `/localization/trusted_odom`。
 - 全局路径输入为 `/subject2/path`；开发测试可用 CSV 航点文件通过独立工具节点以 1 Hz 发布。
-- 当前起步假设 `map` 与 `odom` 重合；LIO 故障后，恢复协调器只有在新 GPS 全局位姿和重启后 LIO 里程计都稳定、`map→odom` 更新回显一致且保护器复位验证通过后，才重新允许行驶。
+- 明日实车使用外部 tmux launcher 的 Horizon CustomMsg LIO；仓库另保留 PointCloud2 受管启动模式，两者禁止同时运行。
+- 当前起步假设 `map` 与 `odom` 重合。恢复协议在受管 LIO 与合成 fixture 中已实现；外部 tmux launcher 没有 restart/generation/alive ROS 契约，因此明日 LIO 故障后只保证零速和 `ABORTED`，不启用自动恢复。
 - 恢复失败或超时进入 `ABORTED`，持续禁止导航；默认每个 `recovery_coordinator` 进程生命周期最多尝试 1 次。
 - 最终命令为 `geometry_msgs/msg/Twist`：`linear.x` 单位 m/s，`angular.z` 单位 rad/s。
 
@@ -71,7 +72,7 @@ CSV 航点发布器属于开发工具包 `ugv_mvp_tools`，不在生产 launch �
 
 本仓库完成的是软件 MVP 与离线/断执行器验证，不等于实车放行。以下条件未满足时，禁止发送非零实车控制：
 
-1. 雷达白名单、雷达到 `base_link` 的实测静态 TF 及记录编号已经审核；
+1. 雷达到 `base_link` 的实测六轴外参及记录编号已经审核；外部 tmux LIO 模式不另发静态 TF，避免 `livox_frame` 双父；
 2. 车辆尺寸、速度、转向、制动距离和命令延迟已测量并回填；
 3. `/cmd_vel` 只有一个最终发布者，底盘侧独立看门狗有效；
 4. 断定位、断点云、输入超时、非法数值和急停测试均在断执行器条件下通过；
@@ -79,4 +80,4 @@ CSV 航点发布器属于开发工具包 `ugv_mvp_tools`，不在生产 launch �
 
 未闭合项和合作方输入要求统一记录在[实车接口与待办](docs/实车接口与待办.md)。
 
-> **本轮验证边界**：RDK 离线，本轮未访问、未编译、未测试 RDK，也未做实车验收。GPS/LIO 恢复软件链和合成 fixture 已实现；真实 GPS 适配、真实 LIO/RDK 进程管理和实车参数仍待验证。
+> **本轮验证边界**：RDK 已掉线，本轮不做当前 RDK 或实车验证。本地 ROS 2 Humble 容器已验证构建、单测、合成 fixture 和外部 LIO 启动分支；真实 GPS 适配、外部 tmux LIO 自动恢复和实车参数仍未闭合。

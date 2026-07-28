@@ -7,6 +7,8 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
   ament_add_pytest_test(test_lio_process_supervisor
     test/test_lio_process_supervisor.py)
+  ament_add_pytest_test(test_lidar_extrinsics_launch
+    test/test_lidar_extrinsics_launch.py)
 endif()
 
 install(DIRECTORY launch config

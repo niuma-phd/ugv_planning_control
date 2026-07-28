@@ -26,12 +26,16 @@ def _explicit_finite_float(context, name: str) -> float:
 def _launch_nodes(context):
     config_file = LaunchConfiguration("config_file")
     snapshot_directory = LaunchConfiguration("odom_snapshot_directory")
-    publish_tf = LaunchConfiguration("publish_lidar_static_tf")
-    enabled = IfCondition(publish_tf).evaluate(context)
-    extrinsic_parameters = {"extrinsics_valid": enabled}
+    extrinsics_valid = IfCondition(
+        LaunchConfiguration("lidar_extrinsics_valid")
+    ).evaluate(context)
+    publish_tf = IfCondition(
+        LaunchConfiguration("publish_lidar_static_tf")
+    ).evaluate(context)
+    extrinsic_parameters = {"extrinsics_valid": extrinsics_valid}
     static_tf_nodes = []
 
-    if enabled:
+    if extrinsics_valid or publish_tf:
         provenance = (
             LaunchConfiguration("lidar_extrinsics_provenance").perform(context).strip()
         )
@@ -61,31 +65,32 @@ def _launch_nodes(context):
                 "base_to_lidar.yaw": values["base_to_lidar_yaw"],
             }
         )
-        static_tf_nodes.append(
-            Node(
-                package="tf2_ros",
-                executable="static_transform_publisher",
-                name="base_to_livox_static_tf",
-                arguments=[
-                    "--x",
-                    str(values["base_to_lidar_x"]),
-                    "--y",
-                    str(values["base_to_lidar_y"]),
-                    "--z",
-                    str(values["base_to_lidar_z"]),
-                    "--roll",
-                    str(values["base_to_lidar_roll"]),
-                    "--pitch",
-                    str(values["base_to_lidar_pitch"]),
-                    "--yaw",
-                    str(values["base_to_lidar_yaw"]),
-                    "--frame-id",
-                    "base_link",
-                    "--child-frame-id",
-                    "livox_frame",
-                ],
+        if publish_tf:
+            static_tf_nodes.append(
+                Node(
+                    package="tf2_ros",
+                    executable="static_transform_publisher",
+                    name="base_to_livox_static_tf",
+                    arguments=[
+                        "--x",
+                        str(values["base_to_lidar_x"]),
+                        "--y",
+                        str(values["base_to_lidar_y"]),
+                        "--z",
+                        str(values["base_to_lidar_z"]),
+                        "--roll",
+                        str(values["base_to_lidar_roll"]),
+                        "--pitch",
+                        str(values["base_to_lidar_pitch"]),
+                        "--yaw",
+                        str(values["base_to_lidar_yaw"]),
+                        "--frame-id",
+                        "base_link",
+                        "--child-frame-id",
+                        "livox_frame",
+                    ],
+                )
             )
-        )
 
     return [
         Node(
@@ -143,6 +148,10 @@ def generate_launch_description() -> LaunchDescription:
             default_value="/home/sunrise/.ros/ugv_mvp",
         ),
         DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
+        DeclareLaunchArgument(
+            "lidar_extrinsics_valid",
+            default_value=LaunchConfiguration("publish_lidar_static_tf"),
+        ),
         DeclareLaunchArgument("lidar_extrinsics_provenance", default_value=""),
         DeclareLaunchArgument("base_to_lidar_x", default_value=""),
         DeclareLaunchArgument("base_to_lidar_y", default_value=""),

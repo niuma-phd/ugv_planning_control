@@ -1,4 +1,5 @@
 import math
+import os
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -23,17 +24,70 @@ def _explicit_finite_float(context, name: str) -> float:
     return value
 
 
+def _explicit_positive_int(context, name: str) -> int:
+    raw = LaunchConfiguration(name).perform(context).strip()
+    if not raw:
+        raise RuntimeError(f"{name} must be supplied when gps_serial_device is set")
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise RuntimeError(f"{name} is not an integer: {raw!r}") from error
+    if value <= 0:
+        raise RuntimeError(f"{name} must be positive")
+    return value
+
+
 def _launch_nodes(context):
     config_file = LaunchConfiguration("config_file")
     snapshot_directory = LaunchConfiguration("odom_snapshot_directory")
+    waypoint_file = LaunchConfiguration("waypoint_file").perform(context)
+    if not waypoint_file:
+        raise RuntimeError("waypoint_file must be supplied explicitly")
+    if not os.path.isabs(waypoint_file):
+        raise RuntimeError("waypoint_file must be an explicit absolute path")
     extrinsics_valid = IfCondition(
         LaunchConfiguration("lidar_extrinsics_valid")
     ).evaluate(context)
-    publish_tf = IfCondition(
-        LaunchConfiguration("publish_lidar_static_tf")
-    ).evaluate(context)
+    publish_tf = IfCondition(LaunchConfiguration("publish_lidar_static_tf")).evaluate(
+        context
+    )
     extrinsic_parameters = {"extrinsics_valid": extrinsics_valid}
     static_tf_nodes = []
+    gps_nodes = []
+
+    gps_device = LaunchConfiguration("gps_serial_device").perform(context).strip()
+    if gps_device:
+        if not gps_device.startswith("/"):
+            raise RuntimeError("gps_serial_device must be an explicit absolute path")
+        parity = LaunchConfiguration("gps_serial_parity").perform(context).strip()
+        if parity not in ("none", "even", "odd"):
+            raise RuntimeError(
+                "gps_serial_parity must be none, even, or odd when GPS is enabled"
+            )
+        gps_nodes.append(
+            Node(
+                package="ugv_localization_mvp",
+                executable="gga_serial_node",
+                name="gga_serial",
+                output="screen",
+                parameters=[
+                    config_file,
+                    {
+                        "device": gps_device,
+                        "baud_rate": _explicit_positive_int(
+                            context, "gps_serial_baud_rate"
+                        ),
+                        "data_bits": _explicit_positive_int(
+                            context, "gps_serial_data_bits"
+                        ),
+                        "parity": parity,
+                        "stop_bits": _explicit_positive_int(
+                            context, "gps_serial_stop_bits"
+                        ),
+                    },
+                ],
+            )
+        )
 
     if extrinsics_valid or publish_tf:
         provenance = (
@@ -122,15 +176,23 @@ def _launch_nodes(context):
             executable="recovery_coordinator_node",
             name="recovery_coordinator",
             output="screen",
-            parameters=[config_file],
+            parameters=[
+                config_file,
+                {
+                    "automatic_recovery_enabled": IfCondition(
+                        LaunchConfiguration("automatic_recovery_enabled")
+                    ).evaluate(context)
+                },
+            ],
         ),
         Node(
             package="ugv_subject2_mvp",
             executable="waypoint_controller_node",
             name="waypoint_controller_node",
             output="screen",
-            parameters=[config_file],
+            parameters=[config_file, {"waypoint_file": waypoint_file}],
         ),
+        *gps_nodes,
         *static_tf_nodes,
     ]
 
@@ -147,6 +209,7 @@ def generate_launch_description() -> LaunchDescription:
             "odom_snapshot_directory",
             default_value="/home/sunrise/.ros/ugv_mvp",
         ),
+        DeclareLaunchArgument("waypoint_file", default_value=""),
         DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
         DeclareLaunchArgument(
             "lidar_extrinsics_valid",
@@ -159,5 +222,11 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("base_to_lidar_roll", default_value=""),
         DeclareLaunchArgument("base_to_lidar_pitch", default_value=""),
         DeclareLaunchArgument("base_to_lidar_yaw", default_value=""),
+        DeclareLaunchArgument("gps_serial_device", default_value=""),
+        DeclareLaunchArgument("gps_serial_baud_rate", default_value=""),
+        DeclareLaunchArgument("gps_serial_data_bits", default_value=""),
+        DeclareLaunchArgument("gps_serial_parity", default_value=""),
+        DeclareLaunchArgument("gps_serial_stop_bits", default_value=""),
+        DeclareLaunchArgument("automatic_recovery_enabled", default_value="false"),
     ]
     return LaunchDescription(arguments + [OpaqueFunction(function=_launch_nodes)])

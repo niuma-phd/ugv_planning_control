@@ -37,6 +37,7 @@ public:
     map_frame_ = declare_parameter<std::string>("map_frame", "map");
     odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
+    automatic_recovery_enabled_ = declare_parameter<bool>("automatic_recovery_enabled", false);
     heartbeat_rate_hz_ = declare_parameter<double>("heartbeat_rate_hz", 10.0);
     input_timeout_sec_ = declare_parameter<double>("input_timeout_sec", 1.0);
     future_stamp_tolerance_sec_ = declare_parameter<double>("future_stamp_tolerance_sec", 0.1);
@@ -430,6 +431,10 @@ private:
 
   void beginRecovery()
   {
+    if (!automatic_recovery_enabled_) {
+      abort("automatic recovery is disabled because no complete global pose source is approved");
+      return;
+    }
     if (recovery_attempts_ >= max_recovery_attempts_) {
       abort("maximum recovery attempts exhausted");
       return;
@@ -658,6 +663,7 @@ private:
   std::string map_frame_;
   std::string odom_frame_;
   std::string base_frame_;
+  bool automatic_recovery_enabled_{false};
   double heartbeat_rate_hz_{10.0};
   double input_timeout_sec_{1.0};
   double future_stamp_tolerance_sec_{0.1};

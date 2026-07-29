@@ -92,10 +92,9 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={
             "config_file": LaunchConfiguration("subject2_config"),
             "odom_snapshot_directory": LaunchConfiguration("odom_snapshot_directory"),
+            "waypoint_file": LaunchConfiguration("waypoint_file"),
             "publish_lidar_static_tf": LaunchConfiguration("publish_lidar_static_tf"),
-            "lidar_extrinsics_valid": LaunchConfiguration(
-                "lidar_extrinsics_valid"
-            ),
+            "lidar_extrinsics_valid": LaunchConfiguration("lidar_extrinsics_valid"),
             "lidar_extrinsics_provenance": LaunchConfiguration(
                 "lidar_extrinsics_provenance"
             ),
@@ -105,6 +104,14 @@ def generate_launch_description() -> LaunchDescription:
             "base_to_lidar_roll": LaunchConfiguration("base_to_lidar_roll"),
             "base_to_lidar_pitch": LaunchConfiguration("base_to_lidar_pitch"),
             "base_to_lidar_yaw": LaunchConfiguration("base_to_lidar_yaw"),
+            "gps_serial_device": LaunchConfiguration("gps_serial_device"),
+            "gps_serial_baud_rate": LaunchConfiguration("gps_serial_baud_rate"),
+            "gps_serial_data_bits": LaunchConfiguration("gps_serial_data_bits"),
+            "gps_serial_parity": LaunchConfiguration("gps_serial_parity"),
+            "gps_serial_stop_bits": LaunchConfiguration("gps_serial_stop_bits"),
+            "automatic_recovery_enabled": LaunchConfiguration(
+                "automatic_recovery_enabled"
+            ),
         }.items(),
     )
 
@@ -136,9 +143,7 @@ def generate_launch_description() -> LaunchDescription:
             ),
             DeclareLaunchArgument("lio_lidar_topic", default_value="/livox/lidar"),
             DeclareLaunchArgument("lio_imu_topic", default_value="/livox/imu"),
-            DeclareLaunchArgument(
-                "lio_termination_timeout_sec", default_value="5.0"
-            ),
+            DeclareLaunchArgument("lio_termination_timeout_sec", default_value="5.0"),
             DeclareLaunchArgument("lio_startup_grace_sec", default_value="3.0"),
             DeclareLaunchArgument("lio_status_period_sec", default_value="0.5"),
             DeclareLaunchArgument(
@@ -151,6 +156,7 @@ def generate_launch_description() -> LaunchDescription:
                 "odom_snapshot_directory",
                 default_value="/home/sunrise/.ros/ugv_mvp",
             ),
+            DeclareLaunchArgument("waypoint_file", default_value=""),
             DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
             DeclareLaunchArgument(
                 "lidar_extrinsics_valid",
@@ -163,6 +169,12 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("base_to_lidar_roll", default_value=""),
             DeclareLaunchArgument("base_to_lidar_pitch", default_value=""),
             DeclareLaunchArgument("base_to_lidar_yaw", default_value=""),
+            DeclareLaunchArgument("gps_serial_device", default_value=""),
+            DeclareLaunchArgument("gps_serial_baud_rate", default_value=""),
+            DeclareLaunchArgument("gps_serial_data_bits", default_value=""),
+            DeclareLaunchArgument("gps_serial_parity", default_value=""),
+            DeclareLaunchArgument("gps_serial_stop_bits", default_value=""),
+            DeclareLaunchArgument("automatic_recovery_enabled", default_value="false"),
             driver,
             OpaqueFunction(
                 function=_lio_supervisor,

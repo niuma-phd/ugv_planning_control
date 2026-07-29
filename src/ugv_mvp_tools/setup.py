@@ -12,7 +12,6 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
-        (f"share/{package_name}/config", glob("config/*.csv")),
         (f"share/{package_name}/launch", glob("launch/*.launch.py")),
     ],
     install_requires=["setuptools"],
@@ -24,11 +23,8 @@ setup(
     license="Apache-2.0",
     entry_points={
         "console_scripts": [
-            "path_fixture_node = ugv_mvp_tools.path_fixture_node:main",
             "raw_odom_fixture_node = ugv_mvp_tools.raw_odom_fixture_node:main",
             "recovery_fixture_node = ugv_mvp_tools.recovery_fixture_node:main",
-            "waypoint_file_publisher_node = "
-            "ugv_mvp_tools.waypoint_file_publisher_node:main",
         ],
     },
 )

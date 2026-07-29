@@ -14,6 +14,7 @@ find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rcl_interfaces REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
@@ -24,12 +25,17 @@ target_include_directories(pure_pursuit_controller PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 
-add_executable(waypoint_controller_node src/waypoint_controller_node.cpp)
-target_link_libraries(waypoint_controller_node pure_pursuit_controller)
-ament_target_dependencies(waypoint_controller_node
-  geometry_msgs nav_msgs rclcpp std_msgs tf2 tf2_geometry_msgs tf2_ros)
+add_library(waypoint_file_loader src/waypoint_file_loader.cpp)
+target_include_directories(waypoint_file_loader PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>)
 
-install(TARGETS pure_pursuit_controller waypoint_controller_node
+add_executable(waypoint_controller_node src/waypoint_controller_node.cpp)
+target_link_libraries(waypoint_controller_node pure_pursuit_controller waypoint_file_loader)
+ament_target_dependencies(waypoint_controller_node
+  geometry_msgs nav_msgs rclcpp rcl_interfaces std_msgs tf2 tf2_geometry_msgs tf2_ros)
+
+install(TARGETS pure_pursuit_controller waypoint_file_loader waypoint_controller_node
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION lib/${PROJECT_NAME})
@@ -39,8 +45,10 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_pure_pursuit_controller test/test_pure_pursuit_controller.cpp)
   target_link_libraries(test_pure_pursuit_controller pure_pursuit_controller)
+  ament_add_gtest(test_waypoint_file_loader test/test_waypoint_file_loader.cpp)
+  target_link_libraries(test_waypoint_file_loader waypoint_file_loader)
 endif()
 
 ament_export_include_directories(include)
-ament_export_libraries(pure_pursuit_controller)
+ament_export_libraries(pure_pursuit_controller waypoint_file_loader)
 ament_package()

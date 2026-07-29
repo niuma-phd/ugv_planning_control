@@ -58,23 +58,24 @@ double PurePursuitController::distance(const Point2D & first, const Point2D & se
   return std::hypot(first.x - second.x, first.y - second.y);
 }
 
-std::size_t PurePursuitController::find_nearest(const ControlInput & input) const
+std::size_t PurePursuitController::find_nearest(
+  const ControlInput & input, const std::vector<Point2D> & path) const
 {
   std::size_t begin = 0U;
-  std::size_t end = input.path.size();
+  std::size_t end = path.size();
   if (progress_initialized_) {
     begin = last_nearest_index_ > config_.progress_backtrack ?
       last_nearest_index_ - config_.progress_backtrack : 0U;
-    const std::size_t remaining = input.path.size() - std::min(last_nearest_index_, input.path.size());
+    const std::size_t remaining = path.size() - std::min(last_nearest_index_, path.size());
     const std::size_t ahead = std::min(config_.progress_search_ahead + 1U, remaining);
-    end = std::min(input.path.size(), last_nearest_index_ + ahead);
+    end = std::min(path.size(), last_nearest_index_ + ahead);
   }
 
   const Point2D current{input.pose.x, input.pose.y};
   double best_distance = std::numeric_limits<double>::infinity();
   std::size_t best_index = begin;
   for (std::size_t index = begin; index < end; ++index) {
-    const double candidate = distance(current, input.path[index]);
+    const double candidate = distance(current, path[index]);
     if (candidate < best_distance) {
       best_distance = candidate;
       best_index = index;
@@ -141,31 +142,32 @@ double PurePursuitController::remaining_length(
   return best_remaining;
 }
 
-ControlOutput PurePursuitController::compute(const ControlInput & input)
+ControlOutput PurePursuitController::compute(
+  const ControlInput & input, const std::vector<Point2D> & path)
 {
   ControlOutput output;
-  if (!input.inputs_valid || !config_is_valid() || input.path.empty() ||
+  if (!input.inputs_valid || !config_is_valid() || path.empty() ||
     !std::isfinite(input.pose.x) || !std::isfinite(input.pose.y) ||
     !std::isfinite(input.pose.yaw) || !std::isfinite(input.current_speed) ||
-    !std::all_of(input.path.begin(), input.path.end(), finite))
+    !std::all_of(path.begin(), path.end(), finite))
   {
     return output;
   }
 
-  const std::size_t nearest = find_nearest(input);
+  const std::size_t nearest = find_nearest(input, path);
   last_nearest_index_ = std::max(last_nearest_index_, nearest);
   progress_initialized_ = true;
   const std::size_t progress_index = last_nearest_index_;
 
   output.nearest_index = progress_index;
-  const double remaining = remaining_length(input.pose, input.path, progress_index);
+  const double remaining = remaining_length(input.pose, path, progress_index);
   const double goal_distance = distance(
-    Point2D{input.pose.x, input.pose.y}, input.path.back());
+    Point2D{input.pose.x, input.pose.y}, path.back());
   if (goal_distance <= config_.goal_tolerance) {
     output.goal_reached = true;
     output.valid = true;
-    output.target = input.path.back();
-    output.target_index = input.path.size() - 1U;
+    output.target = path.back();
+    output.target_index = path.size() - 1U;
     return output;
   }
 
@@ -175,8 +177,8 @@ ControlOutput PurePursuitController::compute(const ControlInput & input)
   }
   lookahead = std::clamp(lookahead, config_.min_lookahead, config_.max_lookahead);
 
-  const std::size_t target_index = find_target(input.path, progress_index, lookahead);
-  const Point2D target = input.path[target_index];
+  const std::size_t target_index = find_target(path, progress_index, lookahead);
+  const Point2D target = path[target_index];
   const double dx = target.x - input.pose.x;
   const double dy = target.y - input.pose.y;
   const double cos_yaw = std::cos(input.pose.yaw);

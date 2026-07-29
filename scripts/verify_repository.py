@@ -21,15 +21,6 @@ FIXTURE_MODES = {
     "subject2",
     "subject2_right",
     "subject2_line",
-    "subject2_path_timeout",
-    "subject2_path_replay",
-    "subject2_path_wrong_frame",
-    "subject2_path_zero_stamp",
-    "subject2_path_negative_stamp",
-    "subject2_path_invalid_nanosec",
-    "subject2_path_empty",
-    "subject2_path_wrong_pose_frame",
-    "subject2_path_nonfinite",
     "subject2_odom_timeout",
     "subject2_odom_jump",
     "subject2_odom_invalid_stamp",
@@ -228,10 +219,8 @@ def check_subject1_retired() -> None:
 def check_fixture_surface() -> None:
     for relative in (
         "src/ugv_mvp_tools/launch/subject2_fixture.launch.py",
-        "src/ugv_mvp_tools/ugv_mvp_tools/path_fixture_node.py",
         "src/ugv_mvp_tools/ugv_mvp_tools/raw_odom_fixture_node.py",
         "src/ugv_mvp_tools/ugv_mvp_tools/recovery_fixture_node.py",
-        "src/ugv_mvp_tools/ugv_mvp_tools/waypoint_file_publisher_node.py",
         "scripts/run_fixture_smoke.sh",
         "scripts/verify_fixture_runtime.py",
     ):

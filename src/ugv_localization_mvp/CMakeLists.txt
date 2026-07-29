@@ -15,6 +15,7 @@ find_package(builtin_interfaces REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 find_package(tf2 REQUIRED)
@@ -22,6 +23,7 @@ find_package(tf2_ros REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 
 add_library(${PROJECT_NAME}_core
+  src/gga_parser.cpp
   src/odom_guard_core.cpp
   src/recovery_core.cpp
   src/ros_time.cpp
@@ -36,6 +38,10 @@ ament_target_dependencies(
 add_executable(lio_odom_adapter_node src/lio_odom_adapter_node.cpp)
 target_link_libraries(lio_odom_adapter_node ${PROJECT_NAME}_core)
 ament_target_dependencies(lio_odom_adapter_node rclcpp nav_msgs tf2 tf2_ros tf2_geometry_msgs)
+
+add_executable(gga_serial_node src/gga_serial_node.cpp)
+target_link_libraries(gga_serial_node ${PROJECT_NAME}_core)
+ament_target_dependencies(gga_serial_node rclcpp sensor_msgs std_msgs)
 
 add_executable(map_odom_manager_node src/map_odom_manager_node.cpp)
 target_link_libraries(map_odom_manager_node ${PROJECT_NAME}_core)
@@ -53,6 +59,7 @@ ament_target_dependencies(
 
 install(TARGETS
   ${PROJECT_NAME}_core
+  gga_serial_node
   lio_odom_adapter_node
   map_odom_manager_node
   odom_guard_node
@@ -64,6 +71,10 @@ install(DIRECTORY include/ DESTINATION include)
 
 if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+  ament_add_gtest(test_gga_parser test/test_gga_parser.cpp)
+  target_link_libraries(test_gga_parser ${PROJECT_NAME}_core)
+  ament_add_pytest_test(test_gga_serial_pty test/test_gga_serial_pty.py TIMEOUT 30)
   ament_add_gtest(test_odom_guard_core test/test_odom_guard_core.cpp)
   target_link_libraries(test_odom_guard_core ${PROJECT_NAME}_core)
   ament_add_gtest(test_transform_math test/test_transform_math.cpp)

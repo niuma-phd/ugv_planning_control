@@ -17,7 +17,7 @@ from geometry_msgs.msg import (
     TransformStamped,
     Twist,
 )
-from nav_msgs.msg import Odometry, Path as PathMessage
+from nav_msgs.msg import Odometry
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from std_msgs.msg import Bool, String, UInt32
@@ -28,19 +28,6 @@ ODOM_FAULT_MODES = {
     "subject2_odom_timeout",
     "subject2_odom_jump",
     "subject2_odom_invalid_stamp",
-}
-PATH_ALWAYS_INVALID_MODES = {
-    "subject2_path_wrong_frame",
-    "subject2_path_zero_stamp",
-    "subject2_path_negative_stamp",
-    "subject2_path_invalid_nanosec",
-    "subject2_path_empty",
-    "subject2_path_wrong_pose_frame",
-    "subject2_path_nonfinite",
-}
-PATH_FAIL_AFTER_DRIVING_MODES = {
-    "subject2_path_timeout",
-    "subject2_path_replay",
 }
 RECOVERY_MODES = {
     "subject2_recovery_success",
@@ -54,6 +41,7 @@ class FixtureMonitor(Node):
     def __init__(self, mode: str) -> None:
         super().__init__(f"verify_{mode}_fixture_runtime")
         self.mode = mode
+        self.started_at = time.monotonic()
         self.state: dict[str, object] = {
             "static_tf": False,
             "map_odom_identity": False,
@@ -63,19 +51,14 @@ class FixtureMonitor(Node):
             "valid_seen": False,
             "current_valid": False,
             "fault_invalid": False,
-            "path_messages": 0,
-            "path_frame": "",
-            "last_path_stamp_ns": 0,
-            "path_stamps_strict": True,
-            "path_points": [],
             "target_messages": 0,
             "target_frame": "",
+            "target_point": None,
             "saw_positive": False,
             "saw_left": False,
             "saw_right": False,
             "saw_straight": False,
             "zero_command": False,
-            "zero_after_path_count": 0,
             "zero_after_positive": False,
             "zero_after_fault": False,
             "linear_x": 0.0,
@@ -159,9 +142,6 @@ class FixtureMonitor(Node):
             "/fixture/localization/last_trusted_odom",
             self._on_last_trusted,
             transient,
-        )
-        self.create_subscription(
-            PathMessage, "/fixture/subject2/path", self._on_path, reliable
         )
         self.create_subscription(
             PointStamped,
@@ -361,24 +341,10 @@ class FixtureMonitor(Node):
             )
         self._check_trusted_gps_continuity()
 
-    def _on_path(self, message: PathMessage) -> None:
-        self.state["path_messages"] = int(self.state["path_messages"]) + 1
-        self.state["path_frame"] = message.header.frame_id
-        stamp_ns = int(
-            message.header.stamp.sec
-        ) * 1_000_000_000 + int(message.header.stamp.nanosec)
-        old_stamp = int(self.state["last_path_stamp_ns"])
-        if old_stamp and stamp_ns <= old_stamp:
-            self.state["path_stamps_strict"] = False
-        self.state["last_path_stamp_ns"] = stamp_ns
-        self.state["path_points"] = [
-            [pose.pose.position.x, pose.pose.position.y, pose.pose.position.z]
-            for pose in message.poses
-        ]
-
     def _on_target(self, message: PointStamped) -> None:
         self.state["target_messages"] = int(self.state["target_messages"]) + 1
         self.state["target_frame"] = message.header.frame_id
+        self.state["target_point"] = [message.point.x, message.point.y]
 
     def _on_command(self, message: Twist) -> None:
         linear_x = message.linear.x
@@ -419,10 +385,6 @@ class FixtureMonitor(Node):
                 self.state["nonzero_during_recovery"] = True
         if zero:
             self.state["zero_command"] = True
-            if int(self.state["path_messages"]) > 0:
-                self.state["zero_after_path_count"] = (
-                    int(self.state["zero_after_path_count"]) + 1
-                )
             if bool(self.state["saw_positive"]):
                 self.state["zero_after_positive"] = True
             if bool(self.state["fault_invalid"]):
@@ -519,12 +481,17 @@ class FixtureMonitor(Node):
             self.state["trusted_gps_continuous"]
         ) or (math.hypot(map_x - gps[0], map_y - gps[1]) < 0.25)
 
-    def _common_ready(self) -> bool:
+    def _localization_and_target_ready(self) -> bool:
+        target = self.state["target_point"]
         return (
             bool(self.state["static_tf"])
             and bool(self.state["map_odom_identity_seen"])
             and bool(self.state["valid_seen"])
-            and int(self.state["path_messages"]) > 0
+            and int(self.state["target_messages"]) > 0
+            and self.state["target_frame"] == "map"
+            and isinstance(target, list)
+            and len(target) == 2
+            and all(math.isfinite(float(value)) for value in target)
         )
 
     def _recovery_stop_is_verified(self) -> bool:
@@ -552,52 +519,43 @@ class FixtureMonitor(Node):
         )
 
     def complete(self) -> bool:
-        if not self._common_ready():
+        if not self._localization_and_target_ready():
             return False
+        target = self.state["target_point"]
+        assert isinstance(target, list)
         if self.mode == "subject2":
             return (
                 bool(self.state["saw_positive"])
                 and bool(self.state["saw_left"])
-                and int(self.state["target_messages"]) > 0
-                and self.state["target_frame"] == "map"
+                and float(target[1]) > 0.0
             )
         if self.mode == "subject2_right":
-            return bool(self.state["saw_positive"]) and bool(self.state["saw_right"])
-        if self.mode == "subject2_line":
-            return bool(self.state["saw_positive"]) and bool(self.state["saw_straight"])
-        if self.mode == "subject2_waypoint_file":
-            expected = [
-                [0.0, 0.0, 0.0],
-                [1.0, 0.4, 0.0],
-                [2.0, 1.0, 0.0],
-                [3.0, 2.0, 0.0],
-            ]
             return (
-                self.state["path_frame"] == "map"
-                and self.state["path_points"] == expected
-                and bool(self.state["path_stamps_strict"])
-                and int(self.state["path_messages"]) >= 2
+                bool(self.state["saw_positive"])
+                and bool(self.state["saw_right"])
+                and float(target[1]) < 0.0
+            )
+        if self.mode == "subject2_line":
+            return (
+                bool(self.state["saw_positive"])
+                and bool(self.state["saw_straight"])
+                and abs(float(target[1])) < 1.0e-9
+            )
+        if self.mode == "subject2_waypoint_file":
+            return (
+                time.monotonic() - self.started_at > 5.5
                 and bool(self.state["saw_positive"])
                 and bool(self.state["saw_left"])
-            )
-        if self.mode in PATH_ALWAYS_INVALID_MODES:
-            return (
-                bool(self.state["current_valid"])
-                and bool(self.state["zero_command"])
-                and int(self.state["zero_after_path_count"]) >= 5
-                and not bool(self.state["saw_positive"])
-            )
-        if self.mode in PATH_FAIL_AFTER_DRIVING_MODES:
-            return (
-                bool(self.state["current_valid"])
-                and bool(self.state["saw_positive"])
-                and bool(self.state["zero_after_positive"])
+                and float(target[1]) > 0.0
             )
         if self.mode in ODOM_FAULT_MODES:
             return (
                 bool(self.state["saw_positive"])
                 and bool(self.state["fault_invalid"])
                 and bool(self.state["zero_after_fault"])
+                and self.state["recovery_states"][-1:] == ["ABORTED"]
+                and not bool(self.state["navigation_enabled"])
+                and int(self.state["restart_call_count"]) == 0
             )
         if self.mode == "subject2_recovery_success":
             states = self.state["recovery_states"]
@@ -689,10 +647,18 @@ class FixtureMonitor(Node):
                 f"found {len(publishers)}"
             )
         path_publishers = self.get_publishers_info_by_topic("/fixture/subject2/path")
-        if len(path_publishers) != 1:
+        if path_publishers:
             raise RuntimeError(
-                "fixture must have exactly one path publisher; "
+                "file-backed fixture must not publish a Path topic; "
                 f"found {len(path_publishers)}"
+            )
+        path_subscriptions = self.get_subscriptions_info_by_topic(
+            "/fixture/subject2/path"
+        )
+        if path_subscriptions:
+            raise RuntimeError(
+                "file-backed controller must not subscribe to a Path topic; "
+                f"found {len(path_subscriptions)}"
             )
         services = {name for name, _ in self.get_service_names_and_types()}
         canonical_services = {
@@ -712,15 +678,6 @@ def main() -> int:
             "subject2",
             "subject2_right",
             "subject2_line",
-            "subject2_path_timeout",
-            "subject2_path_replay",
-            "subject2_path_wrong_frame",
-            "subject2_path_zero_stamp",
-            "subject2_path_negative_stamp",
-            "subject2_path_invalid_nanosec",
-            "subject2_path_empty",
-            "subject2_path_wrong_pose_frame",
-            "subject2_path_nonfinite",
             "subject2_odom_timeout",
             "subject2_odom_jump",
             "subject2_odom_invalid_stamp",

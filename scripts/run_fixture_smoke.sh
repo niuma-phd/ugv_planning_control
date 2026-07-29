@@ -36,60 +36,18 @@ fi
 
 VERIFY_MODE="${MODE}"
 EXPECTED_FAULT="stale"
-EXPECT_PATH_REJECTION=false
 VERIFY_TIMEOUT="15.0"
 LAUNCH_ARGUMENTS=()
+WAYPOINT_SHAPE="left"
 
 case "${MODE}" in
   subject2)
-    LAUNCH_ARGUMENTS+=("path_shape:=left")
     ;;
   subject2_right)
-    LAUNCH_ARGUMENTS+=("path_shape:=right")
+    WAYPOINT_SHAPE="right"
     ;;
   subject2_line)
-    LAUNCH_ARGUMENTS+=("path_shape:=line")
-    ;;
-  subject2_path_timeout)
-    LAUNCH_ARGUMENTS+=("path_shape:=left" "path_stop_after_s:=3.0")
-    VERIFY_TIMEOUT="12.0"
-    ;;
-  subject2_path_replay)
-    LAUNCH_ARGUMENTS+=(
-      "path_shape:=left"
-      "path_stamp_mode:=freeze"
-      "path_freeze_stamp_after_s:=3.0"
-    )
-    EXPECT_PATH_REJECTION=true
-    VERIFY_TIMEOUT="12.0"
-    ;;
-  subject2_path_wrong_frame)
-    LAUNCH_ARGUMENTS+=("path_frame:=unknown_map")
-    EXPECT_PATH_REJECTION=true
-    ;;
-  subject2_path_zero_stamp)
-    LAUNCH_ARGUMENTS+=("path_stamp_mode:=zero")
-    EXPECT_PATH_REJECTION=true
-    ;;
-  subject2_path_negative_stamp)
-    LAUNCH_ARGUMENTS+=("path_stamp_mode:=negative")
-    EXPECT_PATH_REJECTION=true
-    ;;
-  subject2_path_invalid_nanosec)
-    LAUNCH_ARGUMENTS+=("path_stamp_mode:=invalid_nanosec")
-    EXPECT_PATH_REJECTION=true
-    ;;
-  subject2_path_empty)
-    LAUNCH_ARGUMENTS+=("path_empty:=true")
-    EXPECT_PATH_REJECTION=true
-    ;;
-  subject2_path_wrong_pose_frame)
-    LAUNCH_ARGUMENTS+=("path_pose_frame_override:=unknown_map")
-    EXPECT_PATH_REJECTION=true
-    ;;
-  subject2_path_nonfinite)
-    LAUNCH_ARGUMENTS+=("path_inject_nonfinite_x:=true")
-    EXPECT_PATH_REJECTION=true
+    WAYPOINT_SHAPE="line"
     ;;
   subject2_odom_timeout)
     LAUNCH_ARGUMENTS+=("raw_odom_stop_after_s:=6.0")
@@ -112,37 +70,38 @@ case "${MODE}" in
     VERIFY_TIMEOUT="15.0"
     ;;
   subject2_waypoint_file)
+    WAYPOINT_SHAPE="waypoint_file"
     VERIFY_TIMEOUT="15.0"
     ;;
   subject2_recovery_success)
     LAUNCH_ARGUMENTS+=(
-      "path_shape:=line"
       "raw_odom_stop_after_s:=6.0"
       "raw_odom_linear_speed_mps:=0.25"
       "raw_odom_queued_old_samples_after_generation:=10"
       "recovery_fixture_enabled:=true"
       "recovery_scenario:=success"
     )
+    WAYPOINT_SHAPE="line"
     VERIFY_TIMEOUT="20.0"
     ;;
   subject2_recovery_no_gps)
     LAUNCH_ARGUMENTS+=(
-      "path_shape:=line"
       "raw_odom_stop_after_s:=6.0"
       "raw_odom_linear_speed_mps:=0.25"
       "recovery_fixture_enabled:=true"
       "recovery_scenario:=no_gps"
     )
+    WAYPOINT_SHAPE="line"
     VERIFY_TIMEOUT="33.0"
     ;;
   subject2_recovery_restart_failed)
     LAUNCH_ARGUMENTS+=(
-      "path_shape:=line"
       "raw_odom_stop_after_s:=6.0"
       "raw_odom_linear_speed_mps:=0.25"
       "recovery_fixture_enabled:=true"
       "recovery_scenario:=restart_failed"
     )
+    WAYPOINT_SHAPE="line"
     VERIFY_TIMEOUT="16.0"
     ;;
   *)
@@ -154,15 +113,6 @@ case "${MODE}" in
   subject2
   subject2_right
   subject2_line
-  subject2_path_timeout
-  subject2_path_replay
-  subject2_path_wrong_frame
-  subject2_path_zero_stamp
-  subject2_path_negative_stamp
-  subject2_path_invalid_nanosec
-  subject2_path_empty
-  subject2_path_wrong_pose_frame
-  subject2_path_nonfinite
   subject2_odom_timeout
   subject2_odom_jump
   subject2_odom_invalid_stamp
@@ -178,8 +128,8 @@ esac
 FIXTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ugv_subject2_fixture.XXXXXX")"
 SNAPSHOT="${FIXTURE_DIR}/last_good_subject2_odom.json"
 LAUNCH_ARGUMENTS+=("odom_snapshot_directory:=${FIXTURE_DIR}")
-if [[ "${MODE}" == "subject2_waypoint_file" ]]; then
-  WAYPOINT_FILE="${FIXTURE_DIR}/left_turn.csv"
+WAYPOINT_FILE="${FIXTURE_DIR}/${WAYPOINT_SHAPE}.csv"
+if [[ "${WAYPOINT_SHAPE}" == "waypoint_file" ]]; then
   cat >"${WAYPOINT_FILE}" <<'EOF'
 x_m,y_m,z_m,yaw_rad
 0.0,0.0,0.0,0.0
@@ -187,11 +137,39 @@ x_m,y_m,z_m,yaw_rad
 2.0,1.0,0.0,0.7
 3.0,2.0,0.0,0.7
 EOF
-  LAUNCH_ARGUMENTS+=(
-    "waypoint_file_enabled:=true"
-    "waypoint_file:=${WAYPOINT_FILE}"
-  )
+else
+  python3 - "${WAYPOINT_SHAPE}" "${WAYPOINT_FILE}" <<'PY'
+import csv
+import math
+from pathlib import Path
+import sys
+
+shape = sys.argv[1]
+output = Path(sys.argv[2])
+length_m = 8.0
+spacing_m = 0.25
+radius_m = 6.0
+count = int(math.floor(length_m / spacing_m)) + 1
+sign = 1.0 if shape == "left" else -1.0
+with output.open("w", encoding="utf-8", newline="") as stream:
+    writer = csv.writer(stream)
+    writer.writerow(("x_m", "y_m", "z_m", "yaw_rad"))
+    for index in range(count):
+        distance = min(index * spacing_m, length_m)
+        if shape == "line":
+            waypoint = (distance, 0.0, 0.0, 0.0)
+        else:
+            angle = distance / radius_m
+            waypoint = (
+                radius_m * math.sin(angle),
+                sign * radius_m * (1.0 - math.cos(angle)),
+                0.0,
+                sign * angle,
+            )
+        writer.writerow(waypoint)
+PY
 fi
+LAUNCH_ARGUMENTS+=("waypoint_file:=${WAYPOINT_FILE}")
 LOG_FILE="${TMPDIR:-/tmp}/ugv_${MODE}_${ROS_DOMAIN_ID}.log"
 
 cd "${REPOSITORY_ROOT}"
@@ -254,11 +232,4 @@ if grep -qE "Traceback|process has died|Caught exception" "${LOG_FILE}"; then
   cat "${LOG_FILE}" >&2
   exit 1
 fi
-if [[ "${EXPECT_PATH_REJECTION}" == true ]] &&
-  ! grep -q "Rejected /subject2/path" "${LOG_FILE}"; then
-  echo "Fixture did not observe the expected controller path rejection:" >&2
-  cat "${LOG_FILE}" >&2
-  exit 1
-fi
-
 echo "SUBJECT2_FIXTURE_SMOKE_OK mode=${MODE} domain=${ROS_DOMAIN_ID} log=${LOG_FILE}"

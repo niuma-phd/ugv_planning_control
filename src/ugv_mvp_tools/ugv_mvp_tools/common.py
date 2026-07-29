@@ -1,37 +1,8 @@
-"""Pure fixture geometry helpers."""
+"""Pure fixture motion helpers."""
 
 from __future__ import annotations
 
 import math
-
-
-def path_points(
-    shape: str, length_m: float, spacing_m: float, radius_m: float
-) -> list[tuple[float, float, float]]:
-    if length_m <= 0.0 or spacing_m <= 0.0 or radius_m <= 0.0:
-        raise ValueError("length, spacing and radius must be positive")
-    if shape not in {"line", "left", "right"}:
-        raise ValueError(f"unsupported path shape: {shape}")
-
-    count = max(2, int(math.floor(length_m / spacing_m)) + 1)
-    result: list[tuple[float, float, float]] = []
-    sign = 1.0 if shape == "left" else -1.0
-    for index in range(count):
-        distance = min(index * spacing_m, length_m)
-        if shape == "line":
-            result.append((distance, 0.0, 0.0))
-        else:
-            angle = distance / radius_m
-            result.append(
-                (
-                    radius_m * math.sin(angle),
-                    sign * radius_m * (1.0 - math.cos(angle)),
-                    sign * angle,
-                )
-            )
-    if result[-1][0] != length_m and shape == "line":
-        result.append((length_m, 0.0, 0.0))
-    return result
 
 
 def integrate_pose(

@@ -1,12 +1,6 @@
 import pytest
 
-from ugv_mvp_tools.common import integrate_pose, path_points
-
-
-def test_path_directions() -> None:
-    assert path_points("line", 2.0, 0.5, 4.0)[-1][:2] == (2.0, 0.0)
-    assert path_points("left", 2.0, 0.5, 4.0)[-1][1] > 0.0
-    assert path_points("right", 2.0, 0.5, 4.0)[-1][1] < 0.0
+from ugv_mvp_tools.common import integrate_pose
 
 
 def test_integrate_straight_and_turn() -> None:

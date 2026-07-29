@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import re
 import sys
 import types
 
@@ -7,6 +8,7 @@ import pytest
 
 
 PACKAGE_ROOT = Path(__file__).parents[1]
+WAYPOINT_FILE = "/tmp/subject2-waypoints.csv"
 
 
 class _LaunchConfiguration:
@@ -115,6 +117,7 @@ def _resolved_context(description, overrides=None):
 
 def _enabled_context(module, **overrides):
     values = {
+        "waypoint_file": WAYPOINT_FILE,
         "lidar_extrinsics_provenance": "survey-2026-07-28",
         "base_to_lidar_x": "1.0",
         "base_to_lidar_y": "2.0",
@@ -140,15 +143,144 @@ def _static_tf_nodes(nodes):
     ]
 
 
+def _gps_nodes(nodes):
+    return [
+        node for node in nodes if getattr(node, "executable", None) == "gga_serial_node"
+    ]
+
+
+def _recovery_parameters(nodes):
+    recovery = next(node for node in nodes if node.name == "recovery_coordinator")
+    return recovery.parameters[1]
+
+
+def _waypoint_controller_parameters(nodes):
+    controller = next(node for node in nodes if node.name == "waypoint_controller_node")
+    return controller.parameters[1]
+
+
+def test_production_config_default_cruise_speed_is_half_meter_per_second():
+    config = (PACKAGE_ROOT / "config" / "subject2.yaml").read_text()
+    controller_config = config.split("waypoint_controller_node:", maxsplit=1)[1]
+    nominal_speed = float(
+        re.search(r"^\s+nominal_speed:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE)[1]
+    )
+    max_speed = float(
+        re.search(r"^\s+max_speed:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE)[1]
+    )
+
+    assert nominal_speed == 0.5
+    assert max_speed >= nominal_speed
+
+
+@pytest.mark.parametrize("waypoint_file", ["", "relative/waypoints.csv"])
+def test_waypoint_file_is_required_and_must_be_absolute(
+    launch_modules, waypoint_file
+):
+    module = launch_modules("subject2.launch.py")
+    context = _resolved_context(
+        module.generate_launch_description(), {"waypoint_file": waypoint_file}
+    )
+
+    with pytest.raises(RuntimeError, match="waypoint_file"):
+        module._launch_nodes(context)
+
+
+def test_absolute_waypoint_file_is_forwarded_unchanged(launch_modules):
+    module = launch_modules("subject2.launch.py")
+    waypoint_file = "/data/routes/subject2 course.csv"
+    context = _resolved_context(
+        module.generate_launch_description(), {"waypoint_file": waypoint_file}
+    )
+
+    assert _waypoint_controller_parameters(module._launch_nodes(context)) == {
+        "waypoint_file": waypoint_file
+    }
+
+
 def test_default_disables_extrinsics_and_static_tf(launch_modules):
     module = launch_modules("subject2.launch.py")
-    context = _resolved_context(module.generate_launch_description())
+    context = _resolved_context(
+        module.generate_launch_description(), {"waypoint_file": WAYPOINT_FILE}
+    )
 
     assert context["publish_lidar_static_tf"] == "false"
     assert context["lidar_extrinsics_valid"] == "false"
     nodes = module._launch_nodes(context)
     assert _adapter_parameters(nodes) == {"extrinsics_valid": False}
     assert not _static_tf_nodes(nodes)
+    assert not _gps_nodes(nodes)
+    assert _recovery_parameters(nodes) == {"automatic_recovery_enabled": False}
+
+
+def test_explicit_gps_serial_configuration_starts_position_only_adapter(launch_modules):
+    module = launch_modules("subject2.launch.py")
+    context = _resolved_context(
+        module.generate_launch_description(),
+        {
+            "waypoint_file": WAYPOINT_FILE,
+            "gps_serial_device": "/dev/serial/by-id/example",
+            "gps_serial_baud_rate": "115200",
+            "gps_serial_data_bits": "8",
+            "gps_serial_parity": "none",
+            "gps_serial_stop_bits": "1",
+        },
+    )
+
+    nodes = module._launch_nodes(context)
+    gps = _gps_nodes(nodes)
+    assert len(gps) == 1
+    assert gps[0].parameters[1] == {
+        "device": "/dev/serial/by-id/example",
+        "baud_rate": 115200,
+        "data_bits": 8,
+        "parity": "none",
+        "stop_bits": 1,
+    }
+    assert _recovery_parameters(nodes) == {"automatic_recovery_enabled": False}
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"gps_serial_device": "ttyUSB0"},
+        {"gps_serial_baud_rate": ""},
+        {"gps_serial_baud_rate": "auto"},
+        {"gps_serial_data_bits": "0"},
+        {"gps_serial_parity": "mark"},
+        {"gps_serial_stop_bits": ""},
+    ],
+)
+def test_enabled_gps_rejects_incomplete_or_implicit_serial_configuration(
+    launch_modules, overrides
+):
+    module = launch_modules("subject2.launch.py")
+    values = {
+        "waypoint_file": WAYPOINT_FILE,
+        "gps_serial_device": "/dev/ttyUSB0",
+        "gps_serial_baud_rate": "115200",
+        "gps_serial_data_bits": "8",
+        "gps_serial_parity": "none",
+        "gps_serial_stop_bits": "1",
+    }
+    values.update(overrides)
+    context = _resolved_context(module.generate_launch_description(), values)
+    with pytest.raises(RuntimeError):
+        module._launch_nodes(context)
+
+
+def test_automatic_recovery_requires_explicit_launch_enable(launch_modules):
+    module = launch_modules("subject2.launch.py")
+    context = _resolved_context(
+        module.generate_launch_description(),
+        {
+            "waypoint_file": WAYPOINT_FILE,
+            "automatic_recovery_enabled": "true",
+        },
+    )
+    assert _recovery_parameters(module._launch_nodes(context)) == {
+        "automatic_recovery_enabled": True
+    }
 
 
 def test_legacy_publish_true_also_enables_adapter_extrinsics(launch_modules):
@@ -228,3 +360,47 @@ def test_horizon_wrapper_declares_and_forwards_validity_switch(launch_modules):
     forwarded = dict(subject2_include.launch_arguments)["lidar_extrinsics_valid"]
     assert isinstance(forwarded, _LaunchConfiguration)
     assert forwarded.name == "lidar_extrinsics_valid"
+
+
+def test_horizon_wrapper_forwards_gps_and_recovery_switches(launch_modules):
+    module = launch_modules("subject2_horizon.launch.py")
+    description = module.generate_launch_description()
+    subject2_include = next(
+        entity
+        for entity in description.entities
+        if "launch_arguments" in entity.kwargs
+        and "gps_serial_device" in dict(entity.launch_arguments)
+    )
+    forwarded = dict(subject2_include.launch_arguments)
+    for name in (
+        "gps_serial_device",
+        "gps_serial_baud_rate",
+        "gps_serial_data_bits",
+        "gps_serial_parity",
+        "gps_serial_stop_bits",
+        "automatic_recovery_enabled",
+    ):
+        assert isinstance(forwarded[name], _LaunchConfiguration)
+        assert forwarded[name].name == name
+
+
+def test_horizon_wrapper_declares_and_forwards_waypoint_file(launch_modules):
+    module = launch_modules("subject2_horizon.launch.py")
+    description = module.generate_launch_description()
+    declaration = next(
+        entity
+        for entity in description.entities
+        if isinstance(entity, _DeclareLaunchArgument)
+        and entity.name == "waypoint_file"
+    )
+    assert declaration.default_value == ""
+
+    subject2_include = next(
+        entity
+        for entity in description.entities
+        if "launch_arguments" in entity.kwargs
+        and "waypoint_file" in dict(entity.launch_arguments)
+    )
+    forwarded = dict(subject2_include.launch_arguments)["waypoint_file"]
+    assert isinstance(forwarded, _LaunchConfiguration)
+    assert forwarded.name == "waypoint_file"

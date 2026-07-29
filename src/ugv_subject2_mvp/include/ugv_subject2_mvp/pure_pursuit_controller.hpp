@@ -22,8 +22,8 @@ struct Pose2D
 
 struct ControllerConfig
 {
-  double nominal_speed{0.10};
-  double max_speed{0.20};
+  double nominal_speed{0.50};
+  double max_speed{0.50};
   double max_yaw_rate{0.8};
   double max_curvature{1.5};
   double lookahead_distance{1.0};
@@ -40,7 +40,6 @@ struct ControllerConfig
 struct ControlInput
 {
   Pose2D pose;
-  std::vector<Point2D> path;
   double current_speed{0.0};
   bool inputs_valid{false};
 };
@@ -65,13 +64,14 @@ public:
   void set_config(const ControllerConfig & config);
   const ControllerConfig & config() const noexcept;
   void reset_progress() noexcept;
-  ControlOutput compute(const ControlInput & input);
+  ControlOutput compute(const ControlInput & input, const std::vector<Point2D> & path);
 
 private:
   bool config_is_valid() const noexcept;
   static bool finite(const Point2D & point) noexcept;
   static double distance(const Point2D & first, const Point2D & second) noexcept;
-  std::size_t find_nearest(const ControlInput & input) const;
+  std::size_t find_nearest(
+    const ControlInput & input, const std::vector<Point2D> & path) const;
   std::size_t find_target(
     const std::vector<Point2D> & path, std::size_t nearest_index,
     double lookahead_distance) const;

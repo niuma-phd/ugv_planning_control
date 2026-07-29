@@ -4,7 +4,6 @@
 #include <cmath>
 #include <functional>
 #include <memory>
-#include <optional>
 #include <stdexcept>
 #include <string>
 #include <utility>
@@ -14,8 +13,8 @@
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "nav_msgs/msg/path.hpp"
 #include "rclcpp/rclcpp.hpp"
+#include "rcl_interfaces/msg/parameter_descriptor.hpp"
 #include "std_msgs/msg/bool.hpp"
 #include "tf2/exceptions.h"
 #include "tf2/time.h"
@@ -24,6 +23,7 @@
 #include "tf2_ros/buffer.h"
 #include "tf2_ros/transform_listener.h"
 #include "ugv_subject2_mvp/pure_pursuit_controller.hpp"
+#include "ugv_subject2_mvp/waypoint_file_loader.hpp"
 
 namespace ugv_subject2_mvp
 {
@@ -60,28 +60,49 @@ public:
 
     control_rate_hz_ = declare_parameter("control_rate_hz", 20.0);
     odom_timeout_sec_ = declare_parameter("odom_timeout_sec", 0.3);
-    path_timeout_sec_ = declare_parameter("path_timeout_sec", 5.0);
     valid_timeout_sec_ = declare_parameter("valid_timeout_sec", 0.5);
     enable_timeout_sec_ = declare_parameter("enable_timeout_sec", 0.5);
     transform_timeout_sec_ = declare_parameter("transform_timeout_sec", 0.05);
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     expected_path_frame_ = declare_parameter<std::string>("expected_path_frame", "map");
+    rcl_interfaces::msg::ParameterDescriptor waypoint_file_descriptor;
+    waypoint_file_descriptor.description =
+      "Absolute CSV path loaded once during node construction";
+    waypoint_file_descriptor.read_only = true;
+    waypoint_file_ = declare_parameter<std::string>(
+      "waypoint_file", "", waypoint_file_descriptor);
 
     if (!std::isfinite(control_rate_hz_) || control_rate_hz_ <= 0.0) {
       throw std::invalid_argument("control_rate_hz must be positive");
     }
+    if (expected_path_frame_ != "map") {
+      throw std::invalid_argument(
+              "expected_path_frame must be 'map' because waypoint CSV coordinates are map-frame");
+    }
     if (base_frame_.empty() || expected_path_frame_.empty() ||
       !std::isfinite(odom_timeout_sec_) ||
-      !std::isfinite(path_timeout_sec_) || !std::isfinite(valid_timeout_sec_) ||
+      !std::isfinite(valid_timeout_sec_) ||
       !std::isfinite(enable_timeout_sec_) ||
       !std::isfinite(transform_timeout_sec_) || odom_timeout_sec_ <= 0.0 ||
-      path_timeout_sec_ <= 0.0 || valid_timeout_sec_ <= 0.0 ||
+      valid_timeout_sec_ <= 0.0 ||
       enable_timeout_sec_ <= 0.0 ||
       transform_timeout_sec_ < 0.0)
     {
       throw std::invalid_argument(
               "base/path frames and finite positive input timeouts are required");
     }
+
+    // The route is immutable for the lifetime of this node. Loading it before
+    // subscriptions, publishers, and the control timer prevents a partially
+    // constructed controller from producing output after configuration errors.
+    const auto loaded_waypoints = load_waypoint_csv(waypoint_file_);
+    path_.reserve(loaded_waypoints.size());
+    for (const auto & waypoint : loaded_waypoints) {
+      path_.push_back(Point2D{waypoint.x_m, waypoint.y_m});
+    }
+    RCLCPP_INFO(
+      get_logger(), "Loaded %zu fixed waypoints from '%s' in frame '%s'",
+      path_.size(), waypoint_file_.c_str(), expected_path_frame_.c_str());
 
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       "/localization/trusted_odom", rclcpp::QoS(10).reliable(),
@@ -112,28 +133,6 @@ public:
           publish_stop();
         }
       });
-    path_sub_ = create_subscription<nav_msgs::msg::Path>(
-      "/subject2/path", rclcpp::QoS(1).reliable(),
-      [this](nav_msgs::msg::Path::ConstSharedPtr message) {
-        std::string rejection;
-        std::int64_t stamp_ns = 0;
-        if (!validate_path_message(*message, stamp_ns, rejection)) {
-          path_.reset();
-          controller_.reset_progress();
-          RCLCPP_WARN_THROTTLE(
-            get_logger(), *get_clock(), 2000, "Rejected /subject2/path: %s",
-            rejection.c_str());
-          return;
-        }
-        const bool geometry_changed = !path_ || !same_path_geometry(*path_, *message);
-        path_ = std::move(message);
-        path_received_at_ = std::chrono::steady_clock::now();
-        last_path_stamp_ns_ = stamp_ns;
-        if (geometry_changed) {
-          controller_.reset_progress();
-        }
-      });
-
     command_pub_ = create_publisher<geometry_msgs::msg::Twist>(
       "/cmd_vel", rclcpp::QoS(10).reliable());
     target_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
@@ -146,75 +145,6 @@ public:
   }
 
 private:
-  bool validate_path_message(
-    const nav_msgs::msg::Path & path, std::int64_t & stamp_ns,
-    std::string & rejection) const
-  {
-    if (path.header.stamp.sec < 0) {
-      rejection = "header.stamp.sec must not be negative";
-      return false;
-    }
-    if (path.header.stamp.nanosec >= 1000000000U) {
-      rejection = "header.stamp.nanosec must be less than 1000000000";
-      return false;
-    }
-    stamp_ns =
-      static_cast<std::int64_t>(path.header.stamp.sec) * 1000000000LL +
-      static_cast<std::int64_t>(path.header.stamp.nanosec);
-    if (path.header.frame_id != expected_path_frame_) {
-      rejection = "header.frame_id must equal '" + expected_path_frame_ + "'";
-      return false;
-    }
-    if (stamp_ns <= 0) {
-      rejection = "header.stamp must be non-zero";
-      return false;
-    }
-    if (last_path_stamp_ns_ && stamp_ns <= *last_path_stamp_ns_) {
-      rejection = "header.stamp must advance strictly";
-      return false;
-    }
-    if (path.poses.empty()) {
-      rejection = "poses must not be empty";
-      return false;
-    }
-    for (const auto & pose : path.poses) {
-      if (!pose.header.frame_id.empty() &&
-        pose.header.frame_id != expected_path_frame_)
-      {
-        rejection = "every pose frame must be empty or match the path frame";
-        return false;
-      }
-      if (!std::isfinite(pose.pose.position.x) ||
-        !std::isfinite(pose.pose.position.y))
-      {
-        rejection = "every pose x/y value must be finite";
-        return false;
-      }
-    }
-    return true;
-  }
-
-  static bool same_path_geometry(
-    const nav_msgs::msg::Path & first, const nav_msgs::msg::Path & second)
-  {
-    if (first.header.frame_id != second.header.frame_id ||
-      first.poses.size() != second.poses.size())
-    {
-      return false;
-    }
-    for (std::size_t index = 0U; index < first.poses.size(); ++index) {
-      const auto & first_pose = first.poses[index];
-      const auto & second_pose = second.poses[index];
-      if (first_pose.header.frame_id != second_pose.header.frame_id ||
-        first_pose.pose.position.x != second_pose.pose.position.x ||
-        first_pose.pose.position.y != second_pose.pose.position.y)
-      {
-        return false;
-      }
-    }
-    return true;
-  }
-
   static bool recent(
     const std::chrono::steady_clock::time_point & received_at, const double timeout)
   {
@@ -231,17 +161,16 @@ private:
 
   bool build_input(ControlInput & input, std::string & path_frame)
   {
-    if (!odom_ || !path_ || path_->poses.empty() || !valid_received_ || !odom_valid_ ||
+    if (!odom_ || path_.empty() || !valid_received_ || !odom_valid_ ||
       !navigation_enable_received_ || !navigation_enabled_ ||
       !recent(odom_received_at_, odom_timeout_sec_) ||
-      !recent(path_received_at_, path_timeout_sec_) ||
       !recent(valid_received_at_, valid_timeout_sec_) ||
       !recent(navigation_enable_received_at_, enable_timeout_sec_))
     {
       return false;
     }
 
-    path_frame = path_->header.frame_id;
+    path_frame = expected_path_frame_;
     if (path_frame.empty() || odom_->header.frame_id != "odom" ||
       odom_->child_frame_id != base_frame_)
     {
@@ -275,11 +204,6 @@ private:
     input.pose.y = current_in_path.pose.position.y;
     input.pose.yaw = tf2::getYaw(current_in_path.pose.orientation);
     input.current_speed = odom_->twist.twist.linear.x;
-    input.path.reserve(path_->poses.size());
-
-    for (const auto & pose : path_->poses) {
-      input.path.push_back(Point2D{pose.pose.position.x, pose.pose.position.y});
-    }
     input.inputs_valid = true;
     return true;
   }
@@ -293,7 +217,7 @@ private:
       return;
     }
 
-    const ControlOutput output = controller_.compute(input);
+    const ControlOutput output = controller_.compute(input, path_);
     geometry_msgs::msg::Twist command;
     if (output.valid && !output.goal_reached) {
       command.linear.x = output.linear_velocity;
@@ -316,30 +240,27 @@ private:
   tf2_ros::TransformListener tf_listener_;
 
   nav_msgs::msg::Odometry::ConstSharedPtr odom_;
-  nav_msgs::msg::Path::ConstSharedPtr path_;
+  std::vector<Point2D> path_;
   bool odom_valid_{false};
   bool valid_received_{false};
   bool navigation_enabled_{false};
   bool navigation_enable_received_{false};
   std::chrono::steady_clock::time_point odom_received_at_{};
-  std::chrono::steady_clock::time_point path_received_at_{};
   std::chrono::steady_clock::time_point valid_received_at_{};
   std::chrono::steady_clock::time_point navigation_enable_received_at_{};
-  std::optional<std::int64_t> last_path_stamp_ns_;
 
   double control_rate_hz_{20.0};
   double odom_timeout_sec_{0.3};
-  double path_timeout_sec_{5.0};
   double valid_timeout_sec_{0.5};
   double enable_timeout_sec_{0.5};
   double transform_timeout_sec_{0.05};
   std::string base_frame_{"base_link"};
   std::string expected_path_frame_{"map"};
+  std::string waypoint_file_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;
   rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr navigation_enable_sub_;
-  rclcpp::Subscription<nav_msgs::msg::Path>::SharedPtr path_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_pub_;
   rclcpp::TimerBase::SharedPtr timer_;

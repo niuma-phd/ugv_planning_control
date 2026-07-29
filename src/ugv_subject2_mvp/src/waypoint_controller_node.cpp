@@ -1,21 +1,19 @@
 #include <algorithm>
-#include <chrono>
-#include <cstdint>
 #include <cmath>
 #include <functional>
+#include <limits>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
-#include <utility>
 #include <vector>
 
 #include "geometry_msgs/msg/point_stamped.hpp"
 #include "geometry_msgs/msg/pose_stamped.hpp"
 #include "geometry_msgs/msg/twist.hpp"
 #include "nav_msgs/msg/odometry.hpp"
-#include "rclcpp/rclcpp.hpp"
 #include "rcl_interfaces/msg/parameter_descriptor.hpp"
-#include "std_msgs/msg/bool.hpp"
+#include "rclcpp/rclcpp.hpp"
 #include "tf2/exceptions.h"
 #include "tf2/time.h"
 #include "tf2/utils.h"
@@ -41,28 +39,23 @@ public:
     config.max_speed = declare_parameter("max_speed", config.max_speed);
     config.max_yaw_rate = declare_parameter("max_yaw_rate", config.max_yaw_rate);
     config.max_curvature = declare_parameter("max_curvature", config.max_curvature);
-    config.lookahead_distance = declare_parameter("lookahead_distance", config.lookahead_distance);
-    config.use_speed_scaled_lookahead = declare_parameter(
-      "use_speed_scaled_lookahead", config.use_speed_scaled_lookahead);
-    config.lookahead_speed_gain = declare_parameter(
-      "lookahead_speed_gain", config.lookahead_speed_gain);
-    config.min_lookahead = declare_parameter("min_lookahead", config.min_lookahead);
-    config.max_lookahead = declare_parameter("max_lookahead", config.max_lookahead);
+    config.turn_in_place_threshold_rad = declare_parameter(
+      "turn_in_place_threshold_rad", config.turn_in_place_threshold_rad);
     config.slowdown_distance = declare_parameter("slowdown_distance", config.slowdown_distance);
+    config.waypoint_tolerance = declare_parameter(
+      "waypoint_tolerance", config.waypoint_tolerance);
     config.goal_tolerance = declare_parameter("goal_tolerance", config.goal_tolerance);
-    const auto progress_search_ahead = declare_parameter<int>("progress_search_ahead", 200);
-    const auto progress_backtrack = declare_parameter<int>("progress_backtrack", 3);
-    config.progress_search_ahead = static_cast<std::size_t>(
-      std::max<std::int64_t>(0, progress_search_ahead));
-    config.progress_backtrack = static_cast<std::size_t>(
-      std::max<std::int64_t>(0, progress_backtrack));
     controller_.set_config(config);
+    if (!controller_.config_is_valid()) {
+      throw std::invalid_argument(
+              "motion parameters must be finite and positive; "
+              "turn_in_place_threshold_rad must be in (0, pi/2]");
+    }
+    waypoint_tolerance_ = config.waypoint_tolerance;
 
-    control_rate_hz_ = declare_parameter("control_rate_hz", 20.0);
-    odom_timeout_sec_ = declare_parameter("odom_timeout_sec", 0.3);
-    valid_timeout_sec_ = declare_parameter("valid_timeout_sec", 0.5);
-    enable_timeout_sec_ = declare_parameter("enable_timeout_sec", 0.5);
     transform_timeout_sec_ = declare_parameter("transform_timeout_sec", 0.05);
+    odom_topic_ = declare_parameter<std::string>("odom_topic", "/localization/odom");
+    odom_frame_ = declare_parameter<std::string>("odom_frame", "odom");
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     expected_path_frame_ = declare_parameter<std::string>("expected_path_frame", "map");
     rcl_interfaces::msg::ParameterDescriptor waypoint_file_descriptor;
@@ -72,119 +65,93 @@ public:
     waypoint_file_ = declare_parameter<std::string>(
       "waypoint_file", "", waypoint_file_descriptor);
 
-    if (!std::isfinite(control_rate_hz_) || control_rate_hz_ <= 0.0) {
-      throw std::invalid_argument("control_rate_hz must be positive");
-    }
     if (expected_path_frame_ != "map") {
       throw std::invalid_argument(
               "expected_path_frame must be 'map' because waypoint CSV coordinates are map-frame");
     }
-    if (base_frame_.empty() || expected_path_frame_.empty() ||
-      !std::isfinite(odom_timeout_sec_) ||
-      !std::isfinite(valid_timeout_sec_) ||
-      !std::isfinite(enable_timeout_sec_) ||
-      !std::isfinite(transform_timeout_sec_) || odom_timeout_sec_ <= 0.0 ||
-      valid_timeout_sec_ <= 0.0 ||
-      enable_timeout_sec_ <= 0.0 ||
+    if (odom_topic_.empty() || odom_frame_.empty() || base_frame_.empty() ||
+      expected_path_frame_.empty() || !std::isfinite(transform_timeout_sec_) ||
       transform_timeout_sec_ < 0.0)
     {
       throw std::invalid_argument(
-              "base/path frames and finite positive input timeouts are required");
+              "odom topic, frames, and a finite non-negative transform timeout are required");
     }
 
-    // The route is immutable for the lifetime of this node. Loading it before
-    // subscriptions, publishers, and the control timer prevents a partially
-    // constructed controller from producing output after configuration errors.
     const auto loaded_waypoints = load_waypoint_csv(waypoint_file_);
     path_.reserve(loaded_waypoints.size());
     for (const auto & waypoint : loaded_waypoints) {
       path_.push_back(Point2D{waypoint.x_m, waypoint.y_m});
     }
-    RCLCPP_INFO(
-      get_logger(), "Loaded %zu fixed waypoints from '%s' in frame '%s'",
-      path_.size(), waypoint_file_.c_str(), expected_path_frame_.c_str());
 
-    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      "/localization/trusted_odom", rclcpp::QoS(10).reliable(),
-      [this](nav_msgs::msg::Odometry::ConstSharedPtr message) {
-        odom_ = std::move(message);
-        odom_received_at_ = std::chrono::steady_clock::now();
-      });
-    valid_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/localization/odom_valid", rclcpp::QoS(10).reliable(),
-      [this](std_msgs::msg::Bool::ConstSharedPtr message) {
-        odom_valid_ = message->data;
-        if (!odom_valid_) {
-          odom_.reset();
-          controller_.reset_progress();
-          publish_stop();
-        }
-        valid_received_ = true;
-        valid_received_at_ = std::chrono::steady_clock::now();
-      });
-    navigation_enable_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/localization/navigation_enabled", rclcpp::QoS(1).reliable().transient_local(),
-      [this](std_msgs::msg::Bool::ConstSharedPtr message) {
-        navigation_enabled_ = message->data;
-        navigation_enable_received_ = true;
-        navigation_enable_received_at_ = std::chrono::steady_clock::now();
-        if (!navigation_enabled_) {
-          controller_.reset_progress();
-          publish_stop();
-        }
-      });
+    double shortest_segment = std::numeric_limits<double>::infinity();
+    for (std::size_t index = 1U; index < path_.size(); ++index) {
+      const double segment_length = std::hypot(
+        path_[index].x - path_[index - 1U].x,
+        path_[index].y - path_[index - 1U].y);
+      if (segment_length > 0.0) {
+        shortest_segment = std::min(shortest_segment, segment_length);
+      }
+    }
+
     command_pub_ = create_publisher<geometry_msgs::msg::Twist>(
       "/cmd_vel", rclcpp::QoS(10).reliable());
     target_pub_ = create_publisher<geometry_msgs::msg::PointStamped>(
       "/subject2/target_point", rclcpp::QoS(10).reliable());
+    odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
+      odom_topic_, rclcpp::QoS(10).reliable(),
+      std::bind(&WaypointControllerNode::on_odom, this, std::placeholders::_1));
 
-    const auto period = std::chrono::duration<double>(1.0 / control_rate_hz_);
-    timer_ = create_wall_timer(
-      std::chrono::duration_cast<std::chrono::nanoseconds>(period),
-      std::bind(&WaypointControllerNode::control_tick, this));
+    publish_stop();
+    RCLCPP_INFO(
+      get_logger(),
+      "Loaded %zu ordered waypoints from '%s'; direct odom input is '%s'",
+      path_.size(), waypoint_file_.c_str(), odom_topic_.c_str());
+    RCLCPP_INFO(
+      get_logger(),
+      "Motion parameters: nominal_speed=%.3f, max_speed=%.3f, "
+      "max_yaw_rate=%.3f, waypoint_tolerance=%.3f, goal_tolerance=%.3f",
+      config.nominal_speed, config.max_speed, config.max_yaw_rate,
+      config.waypoint_tolerance, config.goal_tolerance);
+    if (std::isfinite(shortest_segment) && waypoint_tolerance_ >= shortest_segment) {
+      RCLCPP_WARN(
+        get_logger(),
+        "waypoint_tolerance %.3f m is not smaller than the shortest non-zero "
+        "CSV segment %.3f m; nearby rows can be confirmed from one pose sample",
+        waypoint_tolerance_, shortest_segment);
+    }
+    RCLCPP_INFO(
+      get_logger(),
+      "Control is odom-driven: no odom_guard, odom_valid, navigation_enabled, or timestamp gate");
   }
 
 private:
-  static bool recent(
-    const std::chrono::steady_clock::time_point & received_at, const double timeout)
-  {
-    const double age = std::chrono::duration<double>(
-      std::chrono::steady_clock::now() - received_at).count();
-    return timeout > 0.0 && age <= timeout;
-  }
-
   void publish_stop()
   {
     geometry_msgs::msg::Twist command;
     command_pub_->publish(command);
   }
 
-  bool build_input(ControlInput & input, std::string & path_frame)
+  bool build_input(
+    const nav_msgs::msg::Odometry & odom, ControlInput & input,
+    std::string & path_frame)
   {
-    if (!odom_ || path_.empty() || !valid_received_ || !odom_valid_ ||
-      !navigation_enable_received_ || !navigation_enabled_ ||
-      !recent(odom_received_at_, odom_timeout_sec_) ||
-      !recent(valid_received_at_, valid_timeout_sec_) ||
-      !recent(navigation_enable_received_at_, enable_timeout_sec_))
-    {
-      return false;
-    }
-
     path_frame = expected_path_frame_;
-    if (path_frame.empty() || odom_->header.frame_id != "odom" ||
-      odom_->child_frame_id != base_frame_)
-    {
+    if (odom.header.frame_id != odom_frame_ || odom.child_frame_id != base_frame_) {
+      RCLCPP_WARN_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Ignoring odom frames '%s' -> '%s'; expected '%s' -> '%s'",
+        odom.header.frame_id.c_str(), odom.child_frame_id.c_str(),
+        odom_frame_.c_str(), base_frame_.c_str());
       return false;
     }
 
     geometry_msgs::msg::PoseStamped current_source;
-    current_source.header = odom_->header;
-    // Freshness is checked above with a monotonic receive timestamp. Use the
-    // latest map->odom transform here because that transform is broadcast by a
-    // separate timer and is not guaranteed to bracket the odometry stamp.
+    current_source.header = odom.header;
+    // The current pose is consumed as it arrives. Use the latest map->odom TF;
+    // no odom timestamp freshness or ordering decision is made here.
     current_source.header.stamp.sec = 0;
     current_source.header.stamp.nanosec = 0;
-    current_source.pose = odom_->pose.pose;
+    current_source.pose = odom.pose.pose;
     geometry_msgs::msg::PoseStamped current_in_path;
     try {
       if (current_source.header.frame_id == path_frame) {
@@ -195,24 +162,75 @@ private:
       }
     } catch (const tf2::TransformException & error) {
       RCLCPP_WARN_THROTTLE(
-        get_logger(), *get_clock(), 2000, "Cannot transform odom pose into path frame: %s",
-        error.what());
+        get_logger(), *get_clock(), 2000,
+        "Cannot transform current odom pose into '%s': %s",
+        path_frame.c_str(), error.what());
       return false;
     }
 
     input.pose.x = current_in_path.pose.position.x;
     input.pose.y = current_in_path.pose.position.y;
     input.pose.yaw = tf2::getYaw(current_in_path.pose.orientation);
-    input.current_speed = odom_->twist.twist.linear.x;
     input.inputs_valid = true;
     return true;
   }
 
-  void control_tick()
+  void report_status(const ControlInput & input, const ControlOutput & output)
+  {
+    if (!output.valid) {
+      RCLCPP_ERROR_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "Controller rejected current pose, route, or motion parameters; commanding zero");
+      return;
+    }
+
+    if (!last_target_index_ || output.target_index != *last_target_index_) {
+      const std::size_t first_confirmed = last_target_index_.value_or(0U);
+      for (std::size_t index = first_confirmed; index < output.target_index; ++index) {
+        const double waypoint_distance = std::hypot(
+          path_[index].x - input.pose.x, path_[index].y - input.pose.y);
+        const char * completion = waypoint_distance <= waypoint_tolerance_ ?
+          "reached" : "passed";
+        RCLCPP_INFO(
+          get_logger(), "[WAYPOINT] %s %zu/%zu (x=%.3f, y=%.3f)",
+          completion, index + 1U, path_.size(), path_[index].x, path_[index].y);
+      }
+      last_target_index_ = output.target_index;
+      if (!output.goal_reached) {
+        RCLCPP_INFO(
+          get_logger(), "[WAYPOINT] going to %zu/%zu (x=%.3f, y=%.3f)",
+          output.target_index + 1U, path_.size(), output.target.x, output.target.y);
+      }
+    }
+
+    if (output.goal_reached) {
+      if (!goal_reported_) {
+        RCLCPP_INFO(
+          get_logger(),
+          "[WAYPOINT] final waypoint %zu/%zu reached; zero command is latched until restart",
+          path_.size(), path_.size());
+        goal_reported_ = true;
+      }
+      return;
+    }
+
+    const double target_distance = std::hypot(
+      output.target.x - input.pose.x, output.target.y - input.pose.y);
+    RCLCPP_INFO_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "[WAYPOINT] %s %zu/%zu | pose=(%.3f, %.3f, yaw=%.3f) | "
+      "distance=%.3f | cmd=(v=%.3f, omega=%.3f)",
+      output.turning_in_place ? "aligning to" : "tracking",
+      output.target_index + 1U, path_.size(), input.pose.x, input.pose.y,
+      input.pose.yaw, target_distance, output.linear_velocity,
+      output.angular_velocity);
+  }
+
+  void on_odom(const nav_msgs::msg::Odometry::ConstSharedPtr message)
   {
     ControlInput input;
     std::string path_frame;
-    if (!build_input(input, path_frame)) {
+    if (!build_input(*message, input, path_frame)) {
       publish_stop();
       return;
     }
@@ -224,6 +242,7 @@ private:
       command.angular.z = output.angular_velocity;
     }
     command_pub_->publish(command);
+    report_status(input, output);
 
     if (output.valid) {
       geometry_msgs::msg::PointStamped target;
@@ -239,31 +258,21 @@ private:
   tf2_ros::Buffer tf_buffer_;
   tf2_ros::TransformListener tf_listener_;
 
-  nav_msgs::msg::Odometry::ConstSharedPtr odom_;
   std::vector<Point2D> path_;
-  bool odom_valid_{false};
-  bool valid_received_{false};
-  bool navigation_enabled_{false};
-  bool navigation_enable_received_{false};
-  std::chrono::steady_clock::time_point odom_received_at_{};
-  std::chrono::steady_clock::time_point valid_received_at_{};
-  std::chrono::steady_clock::time_point navigation_enable_received_at_{};
+  std::optional<std::size_t> last_target_index_;
+  bool goal_reported_{false};
 
-  double control_rate_hz_{20.0};
-  double odom_timeout_sec_{0.3};
-  double valid_timeout_sec_{0.5};
-  double enable_timeout_sec_{0.5};
   double transform_timeout_sec_{0.05};
+  double waypoint_tolerance_{0.30};
+  std::string odom_topic_{"/localization/odom"};
+  std::string odom_frame_{"odom"};
   std::string base_frame_{"base_link"};
   std::string expected_path_frame_{"map"};
   std::string waypoint_file_;
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr valid_sub_;
-  rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr navigation_enable_sub_;
   rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr command_pub_;
   rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr target_pub_;
-  rclcpp::TimerBase::SharedPtr timer_;
 };
 
 }  // namespace ugv_subject2_mvp

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import sys
 import xml.etree.ElementTree as ET
@@ -21,13 +22,7 @@ FIXTURE_MODES = {
     "subject2",
     "subject2_right",
     "subject2_line",
-    "subject2_odom_timeout",
-    "subject2_odom_jump",
-    "subject2_odom_invalid_stamp",
     "subject2_waypoint_file",
-    "subject2_recovery_success",
-    "subject2_recovery_no_gps",
-    "subject2_recovery_restart_failed",
 }
 IGNORED_DIRECTORY_PREFIXES = (
     ".git",
@@ -148,7 +143,7 @@ def check_subject2_build_script() -> None:
     path = require("scripts/build_subject2.sh")
     if not path.is_file():
         return
-    if path.stat().st_mode & 0o111 == 0:
+    if os.name != "nt" and path.stat().st_mode & 0o111 == 0:
         ERRORS.append("scripts/build_subject2.sh is not executable")
     text = path.read_text(encoding="utf-8")
     match = re.search(
@@ -220,7 +215,6 @@ def check_fixture_surface() -> None:
     for relative in (
         "src/ugv_mvp_tools/launch/subject2_fixture.launch.py",
         "src/ugv_mvp_tools/ugv_mvp_tools/raw_odom_fixture_node.py",
-        "src/ugv_mvp_tools/ugv_mvp_tools/recovery_fixture_node.py",
         "scripts/run_fixture_smoke.sh",
         "scripts/verify_fixture_runtime.py",
     ):
@@ -233,7 +227,7 @@ def check_fixture_surface() -> None:
     ci_text = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
     surfaces = {
         "run script": set(re.findall(r"^  (subject2[A-Za-z0-9_]*)(?:\)|$)", run_text, re.MULTILINE)),
-        "runtime verifier": set(re.findall(r'^            "(subject2[A-Za-z0-9_]*)",$', runtime_text, re.MULTILINE)),
+        "runtime verifier": set(re.findall(r'^\s+"(subject2[A-Za-z0-9_]*)",$', runtime_text, re.MULTILINE)),
         "CI": set(re.findall(r"run_fixture_smoke\.sh (subject2[A-Za-z0-9_]*)", ci_text)),
     }
     for surface, modes in surfaces.items():
@@ -246,14 +240,11 @@ def check_fixture_surface() -> None:
         ROOT / "src/ugv_mvp_tools/launch/subject2_fixture.launch.py"
     ).read_text(encoding="utf-8")
     for endpoint in (
-        "/localization/gps_pose",
-        "/localization/gps_valid",
+        "/livox_odometry_mapped",
+        "/localization/odom",
         "/localization/map_odom",
-        "/localization/navigation_enabled",
-        "/localization/recovery_state",
-        "/localization/restart_lio",
-        "/localization/lio_generation",
-        "/localization/lio_process_alive",
+        "/subject2/target_point",
+        "/cmd_vel",
     ):
         if endpoint not in launch_text:
             ERRORS.append(f"fixture launch is missing isolated endpoint {endpoint}")

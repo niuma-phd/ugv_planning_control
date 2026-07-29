@@ -49,42 +49,4 @@ TEST(RosTime, ConvertsLargestRepresentableSecondsWithoutOverflow)
   EXPECT_EQ(*result, 2147483647999999999LL);
 }
 
-TEST(RelativeRosTimeMapper, AnchorsFirstStampAndPreservesSourceDeltas)
-{
-  RelativeRosTimeMapper mapper;
-  const auto first = mapper.map(5 * 1000000000LL, 100 * 1000000000LL);
-  const auto second = mapper.map(5200000000LL, 100250000000LL);
-  ASSERT_TRUE(first);
-  ASSERT_TRUE(second);
-  EXPECT_EQ(*first, 100 * 1000000000LL);
-  EXPECT_EQ(*second, 100200000000LL);
-}
-
-TEST(RelativeRosTimeMapper, RejectsInvalidOrNonIncreasingSourceStamps)
-{
-  RelativeRosTimeMapper mapper;
-  EXPECT_FALSE(mapper.map(0, 100));
-  ASSERT_TRUE(mapper.map(10, 100));
-  EXPECT_FALSE(mapper.map(10, 110));
-  EXPECT_FALSE(mapper.map(9, 120));
-  ASSERT_TRUE(mapper.map(11, 130));
-}
-
-TEST(RelativeRosTimeMapper, RejectsMappedTimestampOverflow)
-{
-  RelativeRosTimeMapper mapper;
-  ASSERT_TRUE(mapper.map(1, std::numeric_limits<std::int64_t>::max() - 1));
-  EXPECT_FALSE(mapper.map(3, std::numeric_limits<std::int64_t>::max()));
-}
-
-TEST(RelativeRosTimeMapper, ResetStartsANewClockMapping)
-{
-  RelativeRosTimeMapper mapper;
-  ASSERT_TRUE(mapper.map(10, 100));
-  mapper.reset();
-  const auto mapped = mapper.map(1, 1000);
-  ASSERT_TRUE(mapped);
-  EXPECT_EQ(*mapped, 1000);
-}
-
 }  // namespace ugv_localization_mvp

@@ -8,7 +8,6 @@ namespace ugv_localization_mvp
 {
 namespace
 {
-constexpr double kNsPerSecond = 1.0e9;
 constexpr double kPi = 3.14159265358979323846;
 
 bool finite(double value) {return std::isfinite(value);}
@@ -25,11 +24,6 @@ const char * toString(OdomFault fault)
     case OdomFault::kAlreadyLatched: return "already_latched";
     case OdomFault::kNonFinite: return "non_finite";
     case OdomFault::kInvalidQuaternion: return "invalid_quaternion";
-    case OdomFault::kInvalidStamp: return "invalid_stamp";
-    case OdomFault::kStale: return "stale";
-    case OdomFault::kFutureStamp: return "future_stamp";
-    case OdomFault::kRepeatedStamp: return "repeated_stamp";
-    case OdomFault::kBackwardStamp: return "backward_stamp";
     case OdomFault::kFrameMismatch: return "frame_mismatch";
     case OdomFault::kTranslationJump: return "translation_jump";
     case OdomFault::kYawJump: return "yaw_jump";
@@ -39,10 +33,8 @@ const char * toString(OdomFault fault)
 
 OdomGuardCore::OdomGuardCore(OdomGuardSettings settings) : settings_(settings)
 {
-  if (!finite(settings_.max_age_s) || !finite(settings_.future_tolerance_s) ||
-    !finite(settings_.quaternion_norm_tolerance) ||
+  if (!finite(settings_.quaternion_norm_tolerance) ||
     !finite(settings_.max_translation_jump_m) || !finite(settings_.max_yaw_jump_rad) ||
-    settings_.max_age_s < 0.0 || settings_.future_tolerance_s < 0.0 ||
     settings_.quaternion_norm_tolerance < 0.0 || settings_.max_translation_jump_m < 0.0 ||
     settings_.max_yaw_jump_rad < 0.0)
   {
@@ -50,20 +42,11 @@ OdomGuardCore::OdomGuardCore(OdomGuardSettings settings) : settings_(settings)
   }
 }
 
-OdomFault OdomGuardCore::evaluate(const OdomSample & sample, std::int64_t now_ns)
+OdomFault OdomGuardCore::evaluate(const OdomSample & sample)
 {
   if (latched_) {return OdomFault::kAlreadyLatched;}
-  const OdomFault fault = check(sample, now_ns);
+  const OdomFault fault = check(sample);
   if (fault != OdomFault::kNone) {
-    // A control launch may subscribe while upstream queues still contain a
-    // pre-start sample. Before a trustworthy baseline exists, discard only
-    // temporal faults and keep waiting with odom_valid=false. All structural
-    // faults, and every fault after a baseline, remain latched.
-    if (!has_last_good_ &&
-      (fault == OdomFault::kStale || fault == OdomFault::kFutureStamp))
-    {
-      return fault;
-    }
     latch(fault);
     return fault;
   }
@@ -72,7 +55,7 @@ OdomFault OdomGuardCore::evaluate(const OdomSample & sample, std::int64_t now_ns
   return OdomFault::kNone;
 }
 
-OdomFault OdomGuardCore::check(const OdomSample & sample, std::int64_t now_ns) const
+OdomFault OdomGuardCore::check(const OdomSample & sample) const
 {
   if (!sample.auxiliary_finite || !finite(sample.x) || !finite(sample.y) || !finite(sample.z) ||
     !finite(sample.qx) || !finite(sample.qy) || !finite(sample.qz) || !finite(sample.qw) ||
@@ -86,12 +69,7 @@ OdomFault OdomGuardCore::check(const OdomSample & sample, std::int64_t now_ns) c
   if (q_norm < 1.0e-12 || std::abs(q_norm - 1.0) > settings_.quaternion_norm_tolerance) {
     return OdomFault::kInvalidQuaternion;
   }
-  const double age_s = static_cast<double>(now_ns - sample.stamp_ns) / kNsPerSecond;
-  if (age_s > settings_.max_age_s) {return OdomFault::kStale;}
-  if (age_s < -settings_.future_tolerance_s) {return OdomFault::kFutureStamp;}
   if (!has_last_good_) {return OdomFault::kNone;}
-  if (sample.stamp_ns == last_good_.stamp_ns) {return OdomFault::kRepeatedStamp;}
-  if (sample.stamp_ns < last_good_.stamp_ns) {return OdomFault::kBackwardStamp;}
 
   const double dx = sample.x - last_good_.x;
   const double dy = sample.y - last_good_.y;

@@ -15,7 +15,6 @@ find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(rcl_interfaces REQUIRED)
-find_package(std_msgs REQUIRED)
 find_package(tf2 REQUIRED)
 find_package(tf2_geometry_msgs REQUIRED)
 find_package(tf2_ros REQUIRED)
@@ -33,7 +32,7 @@ target_include_directories(waypoint_file_loader PUBLIC
 add_executable(waypoint_controller_node src/waypoint_controller_node.cpp)
 target_link_libraries(waypoint_controller_node pure_pursuit_controller waypoint_file_loader)
 ament_target_dependencies(waypoint_controller_node
-  geometry_msgs nav_msgs rclcpp rcl_interfaces std_msgs tf2 tf2_geometry_msgs tf2_ros)
+  geometry_msgs nav_msgs rclcpp rcl_interfaces tf2 tf2_geometry_msgs tf2_ros)
 
 install(TARGETS pure_pursuit_controller waypoint_file_loader waypoint_controller_node
   ARCHIVE DESTINATION lib

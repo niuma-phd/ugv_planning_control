@@ -48,14 +48,31 @@ TEST(OdomGuardCore, RejectsStamps)
 {
   OdomGuardCore stale;
   EXPECT_EQ(stale.evaluate(sampleAt(kSecond), 2 * kSecond), OdomFault::kStale);
+  EXPECT_FALSE(stale.latched());
+  EXPECT_EQ(stale.evaluate(sampleAt(2 * kSecond), 2 * kSecond), OdomFault::kNone);
   OdomGuardCore future;
   EXPECT_EQ(future.evaluate(sampleAt(2 * kSecond), kSecond), OdomFault::kFutureStamp);
+  EXPECT_FALSE(future.latched());
+  EXPECT_EQ(future.evaluate(sampleAt(kSecond), kSecond), OdomFault::kNone);
   OdomGuardCore repeated;
   EXPECT_EQ(repeated.evaluate(sampleAt(kSecond), kSecond), OdomFault::kNone);
   EXPECT_EQ(repeated.evaluate(sampleAt(kSecond), kSecond), OdomFault::kRepeatedStamp);
   OdomGuardCore backward;
   EXPECT_EQ(backward.evaluate(sampleAt(2 * kSecond), 2 * kSecond), OdomFault::kNone);
   EXPECT_EQ(backward.evaluate(sampleAt(1900000000LL), 2 * kSecond), OdomFault::kBackwardStamp);
+}
+
+TEST(OdomGuardCore, LatchesTemporalFaultsAfterTrustedBaseline)
+{
+  OdomGuardCore stale;
+  EXPECT_EQ(stale.evaluate(sampleAt(kSecond), kSecond), OdomFault::kNone);
+  EXPECT_EQ(stale.evaluate(sampleAt(2 * kSecond), 3 * kSecond), OdomFault::kStale);
+  EXPECT_TRUE(stale.latched());
+
+  OdomGuardCore future;
+  EXPECT_EQ(future.evaluate(sampleAt(kSecond), kSecond), OdomFault::kNone);
+  EXPECT_EQ(future.evaluate(sampleAt(3 * kSecond), 2 * kSecond), OdomFault::kFutureStamp);
+  EXPECT_TRUE(future.latched());
 }
 
 TEST(OdomGuardCore, RejectsPoseJumpsAndBadQuaternion)

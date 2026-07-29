@@ -160,13 +160,23 @@ private:
       handleFault(node_fault_);
       return;
     }
-    last_received_sample_ = *sample;
-    have_received_sample_ = true;
-    const OdomFault fault = core_.evaluate(*sample, now().nanoseconds());
+    const auto now_ns = now().nanoseconds();
+    const OdomFault fault = core_.evaluate(*sample, now_ns);
     if (fault != OdomFault::kNone) {
-      handleFault(fault);
+      if (core_.latched()) {
+        handleFault(fault);
+      } else {
+        publishValid(false);
+        const double age_s = static_cast<double>(now_ns - sample->stamp_ns) / 1.0e9;
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "discarding pre-baseline odometry (%s, age=%.3f s); waiting for a fresh sample",
+          toString(fault), age_s);
+      }
       return;
     }
+    last_received_sample_ = *sample;
+    have_received_sample_ = true;
     last_good_msg_ = *msg;
     last_good_msg_.pose.pose.orientation = normalizedQuaternion(
       last_good_msg_.pose.pose.orientation);

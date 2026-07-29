@@ -6,6 +6,9 @@ lio_odom_adapter:
     raw_lidar_frame: livox_frame
     odom_frame: odom
     base_frame: base_link
+    # Use relative_to_ros only when the source is confirmed to publish a
+    # strictly increasing device-relative clock instead of ROS epoch time.
+    timestamp_mode: source
     # Overridden by launch arguments only after the Horizon measurement is approved.
     extrinsics_valid: false
 

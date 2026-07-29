@@ -1,6 +1,7 @@
 #include <functional>
 #include <cmath>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 #include <nav_msgs/msg/odometry.hpp>
@@ -24,6 +25,11 @@ public:
     base_frame_ = declare_parameter<std::string>("base_frame", "base_link");
     raw_world_frame_ = declare_parameter<std::string>("raw_world_frame", "world");
     raw_lidar_frame_ = declare_parameter<std::string>("raw_lidar_frame", "livox_frame");
+    timestamp_mode_ = declare_parameter<std::string>("timestamp_mode", "source");
+    if (timestamp_mode_ != "source" && timestamp_mode_ != "relative_to_ros") {
+      throw std::invalid_argument(
+              "timestamp_mode must be 'source' or 'relative_to_ros'");
+    }
     extrinsics_valid_ = declare_parameter<bool>("extrinsics_valid", false);
     base_lidar_ = makeTransform(
       declare_parameter<double>("base_to_lidar.x", 0.0),
@@ -35,9 +41,18 @@ public:
 
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(output_topic, rclcpp::QoS(10));
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    auto input_qos = rclcpp::SensorDataQoS();
+    input_qos.keep_last(1);
     raw_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      input_topic, rclcpp::SensorDataQoS(),
+      input_topic, input_qos,
       std::bind(&LioOdomAdapterNode::onOdom, this, std::placeholders::_1));
+
+    if (timestamp_mode_ == "relative_to_ros") {
+      RCLCPP_WARN(
+        get_logger(),
+        "timestamp_mode=relative_to_ros: anchoring the relative source clock to ROS time; "
+        "source stamps must remain strictly increasing");
+    }
 
     if (!extrinsics_valid_) {
       RCLCPP_ERROR(
@@ -50,7 +65,8 @@ private:
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
     if (!extrinsics_valid_) {return;}
-    if (!positiveRosTimeToNanoseconds(msg->header.stamp)) {
+    const auto source_stamp_ns = positiveRosTimeToNanoseconds(msg->header.stamp);
+    if (!source_stamp_ns) {
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 2000, "raw odom timestamp is invalid; dropping");
       return;
@@ -77,6 +93,18 @@ private:
 
     nav_msgs::msg::Odometry output;
     output.header.stamp = msg->header.stamp;
+    if (timestamp_mode_ == "relative_to_ros") {
+      const auto mapped_stamp_ns = relative_time_mapper_.map(
+        *source_stamp_ns, now().nanoseconds());
+      if (!mapped_stamp_ns) {
+        RCLCPP_ERROR_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "relative raw odom timestamp did not advance or could not be mapped; dropping");
+        return;
+      }
+      output.header.stamp = rclcpp::Time(
+        *mapped_stamp_ns, get_clock()->get_clock_type());
+    }
     output.header.frame_id = odom_frame_;
     output.child_frame_id = base_frame_;
     output.pose.pose.position.x = transform.translation.x;
@@ -98,8 +126,10 @@ private:
   std::string base_frame_;
   std::string raw_world_frame_;
   std::string raw_lidar_frame_;
+  std::string timestamp_mode_;
   bool extrinsics_valid_{false};
   geometry_msgs::msg::Transform base_lidar_;
+  RelativeRosTimeMapper relative_time_mapper_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr raw_sub_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;

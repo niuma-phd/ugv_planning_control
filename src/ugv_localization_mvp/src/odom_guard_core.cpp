@@ -55,6 +55,15 @@ OdomFault OdomGuardCore::evaluate(const OdomSample & sample, std::int64_t now_ns
   if (latched_) {return OdomFault::kAlreadyLatched;}
   const OdomFault fault = check(sample, now_ns);
   if (fault != OdomFault::kNone) {
+    // A control launch may subscribe while upstream queues still contain a
+    // pre-start sample. Before a trustworthy baseline exists, discard only
+    // temporal faults and keep waiting with odom_valid=false. All structural
+    // faults, and every fault after a baseline, remain latched.
+    if (!has_last_good_ &&
+      (fault == OdomFault::kStale || fault == OdomFault::kFutureStamp))
+    {
+      return fault;
+    }
     latch(fault);
     return fault;
   }

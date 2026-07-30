@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <vector>
@@ -22,6 +23,21 @@ ControlInput make_input(double x = 0.0, double y = 0.0, double yaw = 0.0)
   input.pose.y = y;
   input.pose.yaw = yaw;
   return input;
+}
+
+ControllerConfig enhanced_config()
+{
+  ControllerConfig config;
+  config.enhanced_tracking_enabled = true;
+  config.max_yaw_rate = 1.5;
+  config.turn_in_place_threshold_rad = 0.70;
+  config.turn_in_place_exit_threshold_rad = 0.20;
+  config.lookahead_min_m = 1.0;
+  config.lookahead_max_m = 1.0;
+  config.lookahead_speed_gain = 0.0;
+  config.tracking_omega_enter_threshold_rad_s = 0.05;
+  config.tracking_omega_exit_threshold_rad_s = 0.02;
+  return config;
 }
 
 TEST(PurePursuitController, DrivesStraightTowardNextOrderedWaypoint)
@@ -343,6 +359,402 @@ TEST(PurePursuitController, SharpTurnSlowsToPreserveCurvatureUnderYawRateLimit)
   EXPECT_LE(std::abs(output.angular_velocity), config.max_yaw_rate);
   EXPECT_NEAR(
     output.angular_velocity / output.linear_velocity, output.curvature, 1.0e-12);
+}
+
+TEST(PurePursuitController, StandardPursuitRejectsInvalidLookaheadAndDeadbandParameters)
+{
+  ControllerConfig config = enhanced_config();
+  config.max_yaw_rate = 1.49;
+  EXPECT_FALSE(PurePursuitController(config).config_is_valid());
+
+  config = enhanced_config();
+  config.lookahead_max_m = config.lookahead_min_m - 0.01;
+  EXPECT_FALSE(PurePursuitController(config).config_is_valid());
+
+  config = enhanced_config();
+  config.lookahead_speed_gain = -0.01;
+  EXPECT_FALSE(PurePursuitController(config).config_is_valid());
+
+  config = enhanced_config();
+  config.tracking_omega_exit_threshold_rad_s =
+    config.tracking_omega_enter_threshold_rad_s;
+  EXPECT_FALSE(PurePursuitController(config).config_is_valid());
+}
+
+TEST(PurePursuitController, StandardPursuitUsesPlannedSpeedForBoundedLookahead)
+{
+  ControllerConfig config = enhanced_config();
+  config.lookahead_min_m = 1.0;
+  config.lookahead_max_m = 3.0;
+  config.lookahead_speed_gain = 2.0;
+  PurePursuitController controller(config);
+
+  const auto output = controller.compute(
+    make_input(), {{0.0, 0.0}, {10.0, 0.0}});
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_DOUBLE_EQ(output.lookahead_distance, 2.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.x, 2.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.y, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitProjectsAndInterpolatesSparseStraightPath)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {100.0, 0.0}};
+  controller.compute(make_input(), path);
+
+  const auto output = controller.compute(make_input(10.0, 2.0), path);
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_DOUBLE_EQ(output.path_projection.x, 10.0);
+  EXPECT_DOUBLE_EQ(output.path_projection.y, 0.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.x, 11.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.y, 0.0);
+  EXPECT_DOUBLE_EQ(output.cross_track_error, 2.0);
+  EXPECT_NEAR(output.curvature, -0.8, 1.0e-12);
+  EXPECT_DOUBLE_EQ(output.angular_velocity, -1.0);
+}
+
+TEST(PurePursuitController, StandardPursuitIsInsensitiveToCollinearPathDensity)
+{
+  const std::vector<Point2D> sparse{{0.0, 0.0}, {100.0, 0.0}};
+  std::vector<Point2D> dense;
+  for (int x = 0; x <= 100; ++x) {
+    dense.push_back(Point2D{static_cast<double>(x), 0.0});
+  }
+
+  PurePursuitController sparse_controller(enhanced_config());
+  sparse_controller.compute(make_input(), sparse);
+  const auto sparse_output = sparse_controller.compute(make_input(10.0, 0.2), sparse);
+
+  PurePursuitController dense_controller(enhanced_config());
+  dense_controller.compute(make_input(), dense);
+  const auto dense_output = dense_controller.compute(make_input(10.0, 0.2), dense);
+
+  EXPECT_NEAR(sparse_output.path_projection.x, dense_output.path_projection.x, 1.0e-12);
+  EXPECT_NEAR(sparse_output.pursuit_target.x, dense_output.pursuit_target.x, 1.0e-12);
+  EXPECT_NEAR(sparse_output.pursuit_target.y, dense_output.pursuit_target.y, 1.0e-12);
+  EXPECT_NEAR(sparse_output.curvature, dense_output.curvature, 1.0e-12);
+}
+
+TEST(PurePursuitController, StandardPursuitStopsPreviewAtUnconfirmedCheckpoint)
+{
+  ControllerConfig config = enhanced_config();
+  config.lookahead_min_m = 2.0;
+  config.lookahead_max_m = 2.0;
+  PurePursuitController controller(config);
+  const std::vector<Point2D> path{{0.0, 0.0}, {2.0, 0.0}, {2.0, 3.0}};
+  controller.compute(make_input(), path);
+
+  const auto output = controller.compute(make_input(1.0, 0.0), path);
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_EQ(output.target_index, 1U);
+  EXPECT_EQ(output.pursuit_segment_index, 1U);
+  EXPECT_DOUBLE_EQ(output.path_projection.x, 1.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.x, 2.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.y, 0.0);
+  EXPECT_DOUBLE_EQ(output.curvature, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitDoesNotDeadlockOnUnconfirmedHairpin)
+{
+  ControllerConfig config = enhanced_config();
+  config.lookahead_min_m = 2.0;
+  config.lookahead_max_m = 2.0;
+  PurePursuitController controller(config);
+  const std::vector<Point2D> path{{0.0, 0.0}, {1.0, 0.0}, {-2.0, 0.0}};
+
+  const auto output = controller.compute(make_input(), path);
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_EQ(output.target_index, 1U);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.x, 1.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.y, 0.0);
+  EXPECT_GT(output.linear_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(output.angular_velocity, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitReturnsToMissedOrderedCheckpoint)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {2.0, 0.0}, {4.0, 0.0}};
+  controller.compute(make_input(), path);
+
+  const auto output = controller.compute(make_input(2.2, 1.0), path);
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_EQ(output.target_index, 1U);
+  EXPECT_DOUBLE_EQ(output.target.x, 2.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.x, 2.0);
+  EXPECT_DOUBLE_EQ(output.pursuit_target.y, 0.0);
+  EXPECT_FALSE(output.goal_reached);
+}
+
+TEST(PurePursuitController, StandardPursuitRaisesOnlyNonzeroLinearCommands)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {2.0, 0.0}};
+  controller.compute(make_input(), path);
+
+  const auto near_goal = controller.compute(make_input(1.5, 0.0), path);
+  ASSERT_TRUE(near_goal.valid);
+  EXPECT_GT(near_goal.raw_linear_velocity, 0.0);
+  EXPECT_LT(near_goal.raw_linear_velocity, 0.5);
+  EXPECT_DOUBLE_EQ(near_goal.linear_velocity, 0.5);
+  EXPECT_TRUE(near_goal.minimum_linear_applied);
+  EXPECT_DOUBLE_EQ(near_goal.angular_velocity, 0.0);
+
+  const auto goal = controller.compute(make_input(1.90, 0.0), path);
+  EXPECT_TRUE(goal.goal_reached);
+  EXPECT_DOUBLE_EQ(goal.linear_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(goal.angular_velocity, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitUsesStationaryTurnBreakawayAndHysteresis)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {0.0, 2.0}};
+
+  const auto initial = controller.compute(make_input(), path);
+  ASSERT_TRUE(initial.valid);
+  EXPECT_TRUE(initial.turning_in_place);
+  EXPECT_TRUE(initial.turning_breakaway_active);
+  EXPECT_DOUBLE_EQ(initial.linear_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(initial.angular_velocity, 1.5);
+
+  const auto moving = controller.compute(make_input(0.0, 0.0, 1.0), path);
+  EXPECT_TRUE(moving.turning_in_place);
+  EXPECT_FALSE(moving.turning_breakaway_active);
+  EXPECT_DOUBLE_EQ(moving.angular_velocity, 1.0);
+
+  const auto aligned = controller.compute(make_input(0.0, 0.0, 1.40), path);
+  EXPECT_FALSE(aligned.turning_in_place);
+  EXPECT_DOUBLE_EQ(aligned.linear_velocity, 0.5);
+}
+
+TEST(PurePursuitController, StandardPursuitKeepsSubthresholdAndExactZeroSteeringAtZero)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {10.0, 0.0}};
+  controller.compute(make_input(), path);
+
+  const auto exact = controller.compute(make_input(1.0, 0.0), path);
+  EXPECT_DOUBLE_EQ(exact.raw_angular_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(exact.angular_velocity, 0.0);
+
+  const auto small = controller.compute(make_input(2.0, 0.02), path);
+  ASSERT_LT(std::abs(small.raw_angular_velocity), 0.05);
+  EXPECT_DOUBLE_EQ(small.angular_velocity, 0.0);
+  EXPECT_FALSE(small.minimum_angular_applied);
+}
+
+TEST(PurePursuitController, StandardPursuitAppliesMovingYawFloorAfterRawOmegaDeadband)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {10.0, 0.0}};
+  controller.compute(make_input(), path);
+
+  const auto output = controller.compute(make_input(1.0, 0.2), path);
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_LT(output.raw_angular_velocity, -0.05);
+  EXPECT_DOUBLE_EQ(output.angular_velocity, -1.0);
+  EXPECT_TRUE(output.minimum_angular_applied);
+}
+
+TEST(PurePursuitController, StandardPursuitRequiresZeroFrameBeforeSteeringReversal)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {10.0, 0.0}};
+  controller.compute(make_input(), path);
+
+  EXPECT_DOUBLE_EQ(
+    controller.compute(make_input(1.0, -0.2), path).angular_velocity, 1.0);
+  EXPECT_DOUBLE_EQ(
+    controller.compute(make_input(2.0, 0.2), path).angular_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(
+    controller.compute(make_input(2.0, 0.2), path).angular_velocity, -1.0);
+}
+
+TEST(PurePursuitController, StandardPursuitKeepsNinetyDegreeCornersOrdered)
+{
+  for (const double direction : {-1.0, 1.0}) {
+    ControllerConfig config = enhanced_config();
+    config.lookahead_min_m = 2.0;
+    config.lookahead_max_m = 2.0;
+    PurePursuitController controller(config);
+    const std::vector<Point2D> path{
+      {0.0, 0.0}, {5.0, 0.0}, {5.0, direction * 5.0}};
+    controller.compute(make_input(), path);
+
+    const auto approach = controller.compute(make_input(4.0, 0.0), path);
+
+    ASSERT_TRUE(approach.valid);
+    EXPECT_EQ(approach.target_index, 1U);
+    EXPECT_EQ(approach.pursuit_segment_index, 1U);
+    EXPECT_DOUBLE_EQ(approach.pursuit_target.x, 5.0);
+    EXPECT_DOUBLE_EQ(approach.pursuit_target.y, 0.0);
+    EXPECT_DOUBLE_EQ(approach.curvature, 0.0);
+    EXPECT_FALSE(approach.turning_in_place);
+    EXPECT_DOUBLE_EQ(approach.angular_velocity, 0.0);
+
+    const auto corner = controller.compute(make_input(5.0, 0.0), path);
+    EXPECT_EQ(corner.target_index, 2U);
+    EXPECT_TRUE(corner.turning_in_place);
+    EXPECT_DOUBLE_EQ(corner.linear_velocity, 0.0);
+    EXPECT_DOUBLE_EQ(corner.angular_velocity, direction * 1.5);
+  }
+}
+
+TEST(PurePursuitController, StandardPursuitHandlesRepeatedWaypoints)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{
+    {0.0, 0.0}, {0.0, 0.0}, {2.0, 0.0}, {2.0, 0.0}, {4.0, 0.0}};
+
+  const auto first = controller.compute(make_input(), path);
+  ASSERT_TRUE(first.valid);
+  EXPECT_EQ(first.target_index, 2U);
+  EXPECT_TRUE(std::isfinite(first.pursuit_target.x));
+  EXPECT_TRUE(std::isfinite(first.curvature));
+
+  const auto second = controller.compute(make_input(2.0, 0.0), path);
+  ASSERT_TRUE(second.valid);
+  EXPECT_EQ(second.target_index, 4U);
+  EXPECT_FALSE(second.goal_reached);
+
+  const auto goal = controller.compute(make_input(4.0, 0.0), path);
+  EXPECT_TRUE(goal.goal_reached);
+  EXPECT_DOUBLE_EQ(goal.linear_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(goal.angular_velocity, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitWrapsTrackingErrorAcrossPi)
+{
+  PurePursuitController controller(enhanced_config());
+  const std::vector<Point2D> path{{0.0, 0.0}, {-2.0, -0.002}};
+
+  const auto output = controller.compute(
+    make_input(0.0, 0.0, kPi - 0.001), path);
+
+  ASSERT_TRUE(output.valid);
+  EXPECT_FALSE(output.turning_in_place);
+  EXPECT_NEAR(output.path_yaw, -kPi + 0.001, 1.0e-6);
+  EXPECT_NEAR(output.yaw_error, 0.002, 1.0e-6);
+  EXPECT_DOUBLE_EQ(output.angular_velocity, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitDropsBreakawayFloorOnlyAfterMeasuredYawChange)
+{
+  PurePursuitController controller(enhanced_config());
+  const double target_yaw = 0.80;
+  const std::vector<Point2D> path{
+    {0.0, 0.0}, {2.0 * std::cos(target_yaw), 2.0 * std::sin(target_yaw)}};
+
+  EXPECT_DOUBLE_EQ(controller.compute(make_input(), path).angular_velocity, 1.5);
+
+  const auto below = controller.compute(make_input(0.0, 0.0, 0.049), path);
+  EXPECT_TRUE(below.turning_breakaway_active);
+  EXPECT_DOUBLE_EQ(below.angular_velocity, 1.5);
+
+  const auto above = controller.compute(make_input(0.0, 0.0, 0.051), path);
+  EXPECT_FALSE(above.turning_breakaway_active);
+  EXPECT_DOUBLE_EQ(above.angular_velocity, 1.0);
+}
+
+TEST(PurePursuitController, FieldRouteTurnsStraddleConfiguredRawOmegaDeadband)
+{
+  ControllerConfig config = enhanced_config();
+  config.lookahead_min_m = 2.0;
+  config.lookahead_max_m = 2.0;
+
+  const auto command_at_corner = [&config](const double turn_rad) {
+      PurePursuitController controller(config);
+      const std::vector<Point2D> path{
+        {0.0, 0.0}, {10.0, 0.0},
+        {10.0 + 10.0 * std::cos(turn_rad), 10.0 * std::sin(turn_rad)}};
+      controller.compute(make_input(), path);
+      return controller.compute(make_input(10.0, 0.0), path);
+    };
+
+  const auto largest_turn = command_at_corner(6.47174 * kPi / 180.0);
+  EXPECT_GT(largest_turn.raw_angular_velocity, 0.05);
+  EXPECT_DOUBLE_EQ(largest_turn.angular_velocity, 1.0);
+
+  const auto smaller_turn = command_at_corner(4.68950 * kPi / 180.0);
+  EXPECT_LT(smaller_turn.raw_angular_velocity, 0.05);
+  EXPECT_DOUBLE_EQ(smaller_turn.angular_velocity, 0.0);
+}
+
+TEST(PurePursuitController, StandardPursuitFollowsFieldRouteInKinematicModel)
+{
+  ControllerConfig config = enhanced_config();
+  config.nominal_speed = 0.50;
+  config.max_speed = 1.00;
+  config.max_yaw_rate = 1.50;
+  config.max_curvature = 1.00;
+  config.lookahead_min_m = 1.5;
+  config.lookahead_max_m = 3.0;
+  config.lookahead_speed_gain = 1.0;
+  config.slowdown_distance = 1.20;
+  config.waypoint_tolerance = 0.50;
+  config.goal_tolerance = 0.50;
+  PurePursuitController controller(config);
+  const std::vector<Point2D> path{
+    {0.0, 0.0}, {24.306349, -4.5342}, {51.398388, -9.823478},
+    {77.730579, -18.135508}, {98.74537, -22.921271}};
+  ControlInput input = make_input();
+  constexpr double time_step = 0.02;
+  std::size_t greatest_target_index = 0U;
+  bool reached_goal = false;
+  int completion_step = 20000;
+  double travelled_distance = 0.0;
+  double maximum_cross_track = 0.0;
+  int steering_reversals = 0;
+  double previous_steering_direction = 0.0;
+
+  for (int step = 0; step < 20000; ++step) {
+    const auto output = controller.compute(input, path);
+    ASSERT_TRUE(output.valid);
+    EXPECT_GE(output.target_index, greatest_target_index);
+    greatest_target_index = output.target_index;
+    EXPECT_GE(output.linear_velocity, 0.0);
+    EXPECT_LE(output.linear_velocity, config.max_speed);
+    EXPECT_LE(std::abs(output.angular_velocity), config.max_yaw_rate);
+    if (output.goal_reached) {
+      reached_goal = true;
+      completion_step = step;
+      break;
+    }
+
+    maximum_cross_track = std::max(
+      maximum_cross_track, std::abs(output.cross_track_error));
+    travelled_distance += output.linear_velocity * time_step;
+    if (!output.turning_in_place && output.angular_velocity != 0.0) {
+      const double direction = std::copysign(1.0, output.angular_velocity);
+      if (previous_steering_direction != 0.0 &&
+        direction != previous_steering_direction)
+      {
+        ++steering_reversals;
+      }
+      previous_steering_direction = direction;
+    }
+
+    input.pose.x += output.linear_velocity * std::cos(input.pose.yaw) * time_step;
+    input.pose.y += output.linear_velocity * std::sin(input.pose.yaw) * time_step;
+    input.pose.yaw = std::atan2(
+      std::sin(input.pose.yaw + output.angular_velocity * time_step),
+      std::cos(input.pose.yaw + output.angular_velocity * time_step));
+  }
+
+  EXPECT_TRUE(reached_goal);
+  EXPECT_EQ(greatest_target_index, path.size() - 1U);
+  EXPECT_LT(completion_step, 13000);
+  EXPECT_LT(maximum_cross_track, 1.0);
+  EXPECT_LT(travelled_distance, 112.0);
+  EXPECT_LT(steering_reversals, 50);
 }
 
 }  // namespace

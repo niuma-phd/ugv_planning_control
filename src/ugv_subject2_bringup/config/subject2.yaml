@@ -50,12 +50,32 @@ waypoint_controller_node:
     # requested cruise remains 0.50 m/s; the user-set cap is 1.00 m/s.
     nominal_speed: 0.50
     max_speed: 1.00
-    max_yaw_rate: 0.40
+    # Confirmed chassis breakaway thresholds require 1.50 while turning in
+    # place and 1.00 while moving. The hard cap must not be below either floor.
+    max_yaw_rate: 1.50
     max_curvature: 1.00
-    turn_in_place_threshold_rad: 1.0472
+    enhanced_tracking_enabled: true
+    minimum_linear_speed: 0.50
+    minimum_tracking_yaw_rate: 1.00
+    minimum_turning_yaw_rate: 1.50
+    # The field route has five sparse points, 21.55--27.61 m apart, with only
+    # 0.48--6.47 degree heading changes. Interpolate a pursuit point 2.0 m
+    # ahead at the current 0.50 m/s cruise instead of aiming at a far CSV row.
+    lookahead_min_m: 1.50
+    lookahead_max_m: 3.00
+    lookahead_speed_gain: 1.00
+    # After LIO yaw changes by this amount, an in-place turn has broken static
+    # friction and may use the lower moving yaw floor.
+    turning_motion_threshold_rad: 0.05
+    # Enter/exit hysteresis prevents ALIGN/TRACK chatter. TRACK thresholds are
+    # applied to the standard Pure Pursuit raw omega before the chassis floor.
+    turn_in_place_threshold_rad: 0.70
+    turn_in_place_exit_threshold_rad: 0.20
+    tracking_omega_enter_threshold_rad_s: 0.05
+    tracking_omega_exit_threshold_rad_s: 0.02
     slowdown_distance: 1.20
-    waypoint_tolerance: 0.30
-    goal_tolerance: 0.30
+    waypoint_tolerance: 0.50
+    goal_tolerance: 0.50
     transform_timeout_sec: 0.05
     odom_topic: /localization/odom
     odom_frame: odom

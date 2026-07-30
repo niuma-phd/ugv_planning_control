@@ -15,8 +15,10 @@
 - 生产 `waypoint_controller_node` 在启动时通过 `waypoint_file`
   直接完整加载用户指定的绝对 CSV 航点文件；不再依赖 `/subject2/path`
   或 `waypoint_file_publisher_node`。
-- CSV 严格按行顺序执行，当前点确认后才追踪下一点；目标位于后方或
-  航向偏差过大时先原地对准，最终点到达后零速锁存。
+- CSV 状态严格按行顺序确认；控制器把当前位置投影到当前有序航段，沿
+  该航段插值动态前视点并钳制在当前必达点，再用标准 Pure Pursuit
+  `omega=v*kappa` 跟踪。
+  目标位于后方或航向偏差过大时先原地对准，最终点到达后零速锁存。
 - 明日实车使用外部 tmux launcher 的 Horizon CustomMsg LIO；仓库另保留 PointCloud2 受管启动模式，两者禁止同时运行。
 - 当前起步假设 `map` 与 `odom` 重合。生产 launch 不再启动
   `odom_guard` 或恢复协调器，也不使用 odom 时间戳、新鲜度、
@@ -24,6 +26,10 @@
 - 最终命令为 `geometry_msgs/msg/Twist`：`linear.x` 单位 m/s，`angular.z` 单位 rad/s。
 - 生产配置当前 `nominal_speed=0.5 m/s`、`max_speed=1.0 m/s`；上限放宽
   不会把巡航速度自动提高到 1.0 m/s。
+- 已按现场确认的底盘死区设置非零输出下限：前进 `0.5 m/s`、行驶纠偏
+  `1.0 rad/s`、原地起转 `1.5 rad/s`；确认 yaw 已开始变化后，原地转向
+  降到运动角速度下限。航向死区和进入/退出滞回确保小
+  LIO 噪声仍输出严格零，而不是被放大为最低角速度。
 - 生产 launch 已支持显式串口的 GPGGA position-only 接入，发布 `/gps/fix` 与质量诊断；
   GGA 没有航向，所以正常控制仍完全使用 LIO，默认不启用 GPS/LIO 自动恢复。
 

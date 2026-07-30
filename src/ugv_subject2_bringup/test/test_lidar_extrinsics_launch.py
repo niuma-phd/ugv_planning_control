@@ -154,18 +154,56 @@ def _waypoint_controller_parameters(nodes):
     return controller.parameters[1]
 
 
-def test_production_config_default_cruise_speed_is_half_meter_per_second():
+def test_production_config_enables_confirmed_chassis_output_floors():
     config = (PACKAGE_ROOT / "config" / "subject2.yaml").read_text()
     controller_config = config.split("waypoint_controller_node:", maxsplit=1)[1]
-    nominal_speed = float(
-        re.search(r"^\s+nominal_speed:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE)[1]
-    )
-    max_speed = float(
-        re.search(r"^\s+max_speed:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE)[1]
-    )
 
-    assert nominal_speed == 0.5
-    assert max_speed == 1.0
+    def number(name):
+        return float(
+            re.search(
+                rf"^\s+{name}:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE
+            )[1]
+        )
+
+    def text(name):
+        return re.search(
+            rf"^\s+{name}:\s+(\S+)\s*$", controller_config, re.MULTILINE
+        )[1]
+
+    assert re.search(
+        r"^\s+enhanced_tracking_enabled:\s+true\s*$",
+        controller_config,
+        re.MULTILINE,
+    )
+    assert number("nominal_speed") == 0.5
+    assert number("max_speed") == 1.0
+    assert number("max_yaw_rate") == 1.5
+    assert number("max_curvature") == 1.0
+    assert number("minimum_linear_speed") == 0.5
+    assert number("minimum_tracking_yaw_rate") == 1.0
+    assert number("minimum_turning_yaw_rate") == 1.5
+    assert number("lookahead_min_m") == 1.5
+    assert number("lookahead_max_m") == 3.0
+    assert number("lookahead_speed_gain") == 1.0
+    assert number("turning_motion_threshold_rad") == 0.05
+    assert number("turn_in_place_threshold_rad") == 0.70
+    assert number("turn_in_place_exit_threshold_rad") == 0.20
+    assert number("tracking_omega_enter_threshold_rad_s") == 0.05
+    assert number("tracking_omega_exit_threshold_rad_s") == 0.02
+    assert number("tracking_omega_exit_threshold_rad_s") < number(
+        "tracking_omega_enter_threshold_rad_s"
+    )
+    assert number("turn_in_place_exit_threshold_rad") < number(
+        "turn_in_place_threshold_rad"
+    )
+    assert number("waypoint_tolerance") == 0.5
+    assert number("goal_tolerance") == 0.5
+    assert number("slowdown_distance") == 1.2
+    assert number("transform_timeout_sec") == 0.05
+    assert text("odom_topic") == "/localization/odom"
+    assert text("odom_frame") == "odom"
+    assert text("base_frame") == "base_link"
+    assert text("expected_path_frame") == "map"
 
 
 @pytest.mark.parametrize("waypoint_file", ["", "relative/waypoints.csv"])

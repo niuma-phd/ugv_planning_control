@@ -30,6 +30,17 @@ struct ControllerConfig
   double slowdown_distance{1.5};
   double waypoint_tolerance{0.30};
   double goal_tolerance{0.15};
+  bool enhanced_tracking_enabled{false};
+  double minimum_linear_speed{0.50};
+  double minimum_tracking_yaw_rate{1.00};
+  double minimum_turning_yaw_rate{1.50};
+  double lookahead_min_m{1.50};
+  double lookahead_max_m{3.00};
+  double lookahead_speed_gain{1.00};
+  double turning_motion_threshold_rad{0.05};
+  double turn_in_place_exit_threshold_rad{0.20};
+  double tracking_omega_enter_threshold_rad_s{0.05};
+  double tracking_omega_exit_threshold_rad_s{0.02};
 };
 
 struct ControlInput
@@ -42,12 +53,26 @@ struct ControlOutput
 {
   double linear_velocity{0.0};
   double angular_velocity{0.0};
+  double raw_linear_velocity{0.0};
+  double raw_angular_velocity{0.0};
   double curvature{0.0};
+  double path_yaw{0.0};
+  double reference_yaw{0.0};
+  double yaw_error{0.0};
+  double cross_track_error{0.0};
   Point2D target;
+  Point2D path_projection;
+  Point2D pursuit_target;
   std::size_t target_index{0U};
+  std::size_t pursuit_segment_index{0U};
+  double lookahead_distance{0.0};
   bool valid{false};
   bool goal_reached{false};
   bool turning_in_place{false};
+  bool turning_breakaway_active{false};
+  bool yaw_correction_active{false};
+  bool minimum_linear_applied{false};
+  bool minimum_angular_applied{false};
 };
 
 class PurePursuitController
@@ -67,13 +92,30 @@ private:
   static bool passed_segment(
     const Pose2D & pose, const Point2D & start, const Point2D & finish,
     double tolerance) noexcept;
+  static double wrap_angle(double angle) noexcept;
+  static double signed_floor(double value, double minimum_magnitude) noexcept;
+  bool pursuit_geometry(
+    const Pose2D & pose, const std::vector<Point2D> & path,
+    std::size_t target_index, double lookahead_distance,
+    Point2D & projection, Point2D & pursuit_target,
+    std::size_t & pursuit_segment_index, double & path_yaw,
+    double & reference_yaw, double & cross_track_error) noexcept;
   double remaining_length(
     const Pose2D & pose, const std::vector<Point2D> & path,
     std::size_t target_index) const;
+  void reset_control_state() noexcept;
 
   ControllerConfig config_;
   std::size_t active_waypoint_index_{0U};
   bool goal_latched_{false};
+  bool turning_in_place_latched_{false};
+  double turning_yaw_direction_{0.0};
+  double turning_start_yaw_{0.0};
+  bool turning_motion_confirmed_{false};
+  bool tracking_yaw_correction_latched_{false};
+  double tracking_yaw_direction_{0.0};
+  std::size_t projection_target_index_{static_cast<std::size_t>(-1)};
+  double active_segment_progress_m_{0.0};
 };
 
 }  // namespace ugv_subject2_mvp

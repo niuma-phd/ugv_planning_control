@@ -45,11 +45,35 @@ public:
     config.waypoint_tolerance = declare_parameter(
       "waypoint_tolerance", config.waypoint_tolerance);
     config.goal_tolerance = declare_parameter("goal_tolerance", config.goal_tolerance);
+    config.enhanced_tracking_enabled = declare_parameter(
+      "enhanced_tracking_enabled", config.enhanced_tracking_enabled);
+    config.minimum_linear_speed = declare_parameter(
+      "minimum_linear_speed", config.minimum_linear_speed);
+    config.minimum_tracking_yaw_rate = declare_parameter(
+      "minimum_tracking_yaw_rate", config.minimum_tracking_yaw_rate);
+    config.minimum_turning_yaw_rate = declare_parameter(
+      "minimum_turning_yaw_rate", config.minimum_turning_yaw_rate);
+    config.lookahead_min_m = declare_parameter(
+      "lookahead_min_m", config.lookahead_min_m);
+    config.lookahead_max_m = declare_parameter(
+      "lookahead_max_m", config.lookahead_max_m);
+    config.lookahead_speed_gain = declare_parameter(
+      "lookahead_speed_gain", config.lookahead_speed_gain);
+    config.turning_motion_threshold_rad = declare_parameter(
+      "turning_motion_threshold_rad", config.turning_motion_threshold_rad);
+    config.turn_in_place_exit_threshold_rad = declare_parameter(
+      "turn_in_place_exit_threshold_rad", config.turn_in_place_exit_threshold_rad);
+    config.tracking_omega_enter_threshold_rad_s = declare_parameter(
+      "tracking_omega_enter_threshold_rad_s",
+      config.tracking_omega_enter_threshold_rad_s);
+    config.tracking_omega_exit_threshold_rad_s = declare_parameter(
+      "tracking_omega_exit_threshold_rad_s",
+      config.tracking_omega_exit_threshold_rad_s);
     controller_.set_config(config);
     if (!controller_.config_is_valid()) {
       throw std::invalid_argument(
-              "motion parameters must be finite and positive; "
-              "turn_in_place_threshold_rad must be in (0, pi/2]");
+              "motion parameters are invalid; standard Pure Pursuit requires "
+              "ordered lookahead, speed-floor, and angular deadband limits");
     }
     waypoint_tolerance_ = config.waypoint_tolerance;
 
@@ -112,6 +136,16 @@ public:
       "max_yaw_rate=%.3f, waypoint_tolerance=%.3f, goal_tolerance=%.3f",
       config.nominal_speed, config.max_speed, config.max_yaw_rate,
       config.waypoint_tolerance, config.goal_tolerance);
+    RCLCPP_INFO(
+      get_logger(),
+      "Standard Pure Pursuit=%s | lookahead=[%.3f, %.3f] m + %.3f s * "
+      "planned_speed | floors: moving v=%.3f, moving |omega|=%.3f, "
+      "in-place breakaway |omega|=%.3f | turning-motion=%.3f rad",
+      config.enhanced_tracking_enabled ? "enabled" : "disabled",
+      config.lookahead_min_m, config.lookahead_max_m,
+      config.lookahead_speed_gain, config.minimum_linear_speed,
+      config.minimum_tracking_yaw_rate, config.minimum_turning_yaw_rate,
+      config.turning_motion_threshold_rad);
     if (std::isfinite(shortest_segment) && waypoint_tolerance_ >= shortest_segment) {
       RCLCPP_WARN(
         get_logger(),
@@ -219,11 +253,20 @@ private:
     RCLCPP_INFO_THROTTLE(
       get_logger(), *get_clock(), 1000,
       "[WAYPOINT] %s %zu/%zu | pose=(%.3f, %.3f, yaw=%.3f) | "
-      "distance=%.3f | cmd=(v=%.3f, omega=%.3f)",
+      "distance=%.3f | pursuit=(%.3f, %.3f) seg=%zu Ld=%.3f | "
+      "path_yaw=%.3f ref_yaw=%.3f yaw_error=%.3f cross_track=%.3f | "
+      "raw=(v=%.3f, omega=%.3f) | "
+      "cmd=(v=%.3f, omega=%.3f) floor=(v:%s, omega:%s) breakaway=%s",
       output.turning_in_place ? "aligning to" : "tracking",
       output.target_index + 1U, path_.size(), input.pose.x, input.pose.y,
-      input.pose.yaw, target_distance, output.linear_velocity,
-      output.angular_velocity);
+      input.pose.yaw, target_distance, output.pursuit_target.x,
+      output.pursuit_target.y, output.pursuit_segment_index + 1U,
+      output.lookahead_distance, output.path_yaw, output.reference_yaw,
+      output.yaw_error, output.cross_track_error, output.raw_linear_velocity,
+      output.raw_angular_velocity, output.linear_velocity,
+      output.angular_velocity, output.minimum_linear_applied ? "yes" : "no",
+      output.minimum_angular_applied ? "yes" : "no",
+      output.turning_breakaway_active ? "yes" : "no");
   }
 
   void on_odom(const nav_msgs::msg::Odometry::ConstSharedPtr message)

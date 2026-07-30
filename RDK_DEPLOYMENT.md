@@ -1,6 +1,6 @@
 # RDK 科目二部署与启动
 
-本文对应当前“LIO odom 直连 + CSV 严格顺序航点”版本。生产 launch 不再启动 `odom_guard` 或自动恢复协调器。
+本文对应当前“LIO odom 直连 + CSV 严格顺序确认 + 标准 Pure Pursuit 动态前视”版本。生产 launch 不再启动 `odom_guard` 或自动恢复协调器。
 
 ## 1. 获取用户指定版本
 
@@ -38,12 +38,23 @@ python3 scripts/verify_repository.py
 ```yaml
 nominal_speed: 0.50
 max_speed: 1.00
-max_yaw_rate: 0.40
+max_yaw_rate: 1.50
 max_curvature: 1.00
-turn_in_place_threshold_rad: 1.0472
+enhanced_tracking_enabled: true
+minimum_linear_speed: 0.50
+minimum_tracking_yaw_rate: 1.00
+minimum_turning_yaw_rate: 1.50
+lookahead_min_m: 1.50
+lookahead_max_m: 3.00
+lookahead_speed_gain: 1.00
+turning_motion_threshold_rad: 0.05
+turn_in_place_threshold_rad: 0.70
+turn_in_place_exit_threshold_rad: 0.20
+tracking_omega_enter_threshold_rad_s: 0.05
+tracking_omega_exit_threshold_rad_s: 0.02
 slowdown_distance: 1.20
-waypoint_tolerance: 0.30
-goal_tolerance: 0.30
+waypoint_tolerance: 0.50
+goal_tolerance: 0.50
 ```
 
 如果继续使用 `/home/sunrise/subject2_field.yaml`，只保留当前参数名和已经由真实设备验证的 GPS 配置。运动参数只在启动时读取，修改后应重启控制 launch。

@@ -2,7 +2,7 @@
 <package format="3">
   <name>ugv_subject2_mvp</name>
   <version>0.1.0</version>
-  <description>Fail-closed Pure Pursuit controller loading a fixed waypoint CSV at startup.</description>
+  <description>Direct-odom sequential waypoint controller loading a fixed CSV at startup.</description>
   <maintainer email="xcxc@nuaa.com">xcc</maintainer>
   <license>Apache-2.0</license>
 
@@ -12,7 +12,6 @@
   <depend>nav_msgs</depend>
   <depend>rclcpp</depend>
   <depend>rcl_interfaces</depend>
-  <depend>std_msgs</depend>
   <depend>tf2</depend>
   <depend>tf2_geometry_msgs</depend>
   <depend>tf2_ros</depend>

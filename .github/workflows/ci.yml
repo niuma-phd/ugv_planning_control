@@ -41,9 +41,3 @@ jobs:
           ROS_DOMAIN_ID=172 scripts/run_fixture_smoke.sh subject2_right
           ROS_DOMAIN_ID=173 scripts/run_fixture_smoke.sh subject2_line
           ROS_DOMAIN_ID=174 scripts/run_fixture_smoke.sh subject2_waypoint_file
-          ROS_DOMAIN_ID=175 scripts/run_fixture_smoke.sh subject2_odom_timeout
-          ROS_DOMAIN_ID=176 scripts/run_fixture_smoke.sh subject2_odom_jump
-          ROS_DOMAIN_ID=177 scripts/run_fixture_smoke.sh subject2_odom_invalid_stamp
-          ROS_DOMAIN_ID=178 scripts/run_fixture_smoke.sh subject2_recovery_success
-          ROS_DOMAIN_ID=179 scripts/run_fixture_smoke.sh subject2_recovery_no_gps
-          ROS_DOMAIN_ID=180 scripts/run_fixture_smoke.sh subject2_recovery_restart_failed

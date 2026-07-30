@@ -8,23 +8,34 @@
 
 ### 科目二：自主导航
 
-`Horizon + IMU → LIO → 里程计适配/保护 → Pure Pursuit → /cmd_vel`
+`Horizon + IMU → LIO → 里程计坐标适配 → 顺序航点控制 → /cmd_vel`
 
-- 定位使用现有 LIO，保护后的里程计为 `/localization/trusted_odom`。
+- 定位使用现有 LIO；适配器把 `/livox_odometry_mapped` 转为规范的
+  `/localization/odom`，控制器逐帧直接消费该话题。
 - 生产 `waypoint_controller_node` 在启动时通过 `waypoint_file`
   直接完整加载用户指定的绝对 CSV 航点文件；不再依赖 `/subject2/path`
   或 `waypoint_file_publisher_node`。
+- CSV 状态严格按行顺序确认；控制器把当前位置投影到当前有序航段，沿
+  该航段插值动态前视点并钳制在当前必达点，再用标准 Pure Pursuit
+  `omega=v*kappa` 跟踪。
+  目标位于后方或航向偏差过大时先原地对准，最终点到达后零速锁存。
 - 明日实车使用外部 tmux launcher 的 Horizon CustomMsg LIO；仓库另保留 PointCloud2 受管启动模式，两者禁止同时运行。
-- 当前起步假设 `map` 与 `odom` 重合。恢复协议在受管 LIO 与合成 fixture 中已实现；外部 tmux launcher 没有 restart/generation/alive ROS 契约，因此明日 LIO 故障后只保证零速和 `ABORTED`，不启用自动恢复。
-- 恢复失败或超时进入 `ABORTED`，持续禁止导航；默认每个 `recovery_coordinator` 进程生命周期最多尝试 1 次。
+- 当前起步假设 `map` 与 `odom` 重合。生产 launch 不再启动
+  `odom_guard` 或恢复协调器，也不使用 odom 时间戳、新鲜度、
+  `odom_valid` 或 `navigation_enabled` 门禁。
 - 最终命令为 `geometry_msgs/msg/Twist`：`linear.x` 单位 m/s，`angular.z` 单位 rad/s。
-- 生产配置的默认巡航速度 `nominal_speed` 和线速度上限 `max_speed`
-  均为用户指定的 `0.5 m/s`；该值不是实车安全认证结论。
+- 生产配置当前 `nominal_speed=0.5 m/s`、`max_speed=1.0 m/s`；上限放宽
+  不会把巡航速度自动提高到 1.0 m/s。
+- 已按现场确认的底盘死区设置非零输出下限：前进 `0.5 m/s`、行驶纠偏
+  `1.0 rad/s`、原地起转 `1.5 rad/s`；确认 yaw 已开始变化后，原地转向
+  降到运动角速度下限。航向死区和进入/退出滞回确保小
+  LIO 噪声仍输出严格零，而不是被放大为最低角速度。
 - 生产 launch 已支持显式串口的 GPGGA position-only 接入，发布 `/gps/fix` 与质量诊断；
   GGA 没有航向，所以正常控制仍完全使用 LIO，默认不启用 GPS/LIO 自动恢复。
 
 详见[科目二自主导航使用说明](docs/科目二_自主导航使用说明.md)。
-航点文件接入和逐项测试见[科目二航点文件接入与测试手册](docs/科目二_上游接入与测试手册.md)。
+旧 guard/recovery 测试记录保留在[科目二航点文件接入与测试手册](docs/科目二_上游接入与测试手册.md)，
+不要把其中旧启动参数用于当前生产链。
 另一台设备或 AI 从 GitHub 取得精确版本并部署到 RDK 时，使用
 [`RDK_DEPLOYMENT.md`](RDK_DEPLOYMENT.md)作为入口，不要使用临时会话交接文件。
 
@@ -75,7 +86,7 @@ ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 ## 文档
 
 - [科目二自主导航：代码逻辑、构建、启动与调试](docs/科目二_自主导航使用说明.md)
-- [科目二航点文件接入与测试手册](docs/科目二_上游接入与测试手册.md)
+- [旧 guard/recovery 航点测试记录](docs/科目二_上游接入与测试手册.md)
 - [实车接口、TF、测量回填与剩余待办](docs/实车接口与待办.md)
 - [GPGGA 串口接入与串口查询](docs/GGA串口接入说明.md)
 - [从 GitHub 取得精确版本并部署到 RDK](RDK_DEPLOYMENT.md)
@@ -87,7 +98,8 @@ ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 1. 雷达到 `base_link` 的实测六轴外参及记录编号已经审核；外部 tmux LIO 模式不另发静态 TF，避免 `livox_frame` 双父；
 2. 车辆尺寸、速度、转向、制动距离和命令延迟已测量并回填；
 3. `/cmd_vel` 只有一个最终发布者，底盘侧独立看门狗有效；
-4. 断定位、断点云、输入超时、非法数值和急停测试均在断执行器条件下通过；
+4. 非法数值、TF 丢失和急停测试均在断执行器条件下通过，且底盘侧独立
+   `/cmd_vel` 接收超时看门狗已验证；
 5. 获得现场负责人批准后，才可按限速参数进行低速测试。
 
 未闭合项和合作方输入要求统一记录在[实车接口与待办](docs/实车接口与待办.md)。
@@ -98,4 +110,4 @@ ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 
 > **本轮验证边界**：RDK 已掉线，本轮不做当前 RDK 或实车验证。GPGGA 串口接入已实现为
 > position-only 软件路径，但具体串口、帧格式和真实接收机尚未验证；无可信航向时 GPS/LIO
-> 自动恢复保持关闭。外部 tmux LIO 自动恢复和实车参数仍未闭合。
+> 当前控制直接消费 LIO odom，不启用自动恢复。底盘命令超时看门狗和实车参数仍需现场闭合。

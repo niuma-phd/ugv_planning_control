@@ -1,5 +1,10 @@
 # GPGGA 串口接入说明
 
+> GPS 节点当前只做独立 position-only 采集和质量观察。航点控制直接消费
+> LIO 适配后的 `/localization/odom`，不再经过 `/localization/trusted_odom`
+> 或自动恢复协调器。本文若出现旧控制链描述，以
+> [科目二顺序航点控制与现场调参说明](科目二_自主导航使用说明.md)为准。
+
 ## 1. 本轮能力边界
 
 `指令参考GGA.docx` 定义的是标准 NMEA ASCII `$GPGGA` 报文。它包含 UTC
@@ -12,7 +17,7 @@
                                 → /gps/fix
                                 → /gps/gga_position_valid
 
-LIO → /localization/trusted_odom（位置和航向）→ Pure Pursuit → /cmd_vel
+LIO → /localization/odom（位置和航向）→ 顺序航点控制 → /cmd_vel
 ```
 
 - `/gps/fix` 是 `sensor_msgs/msg/NavSatFix`，`frame_id=gps_link` 表示天线相位中心。
@@ -22,12 +27,9 @@ LIO → /localization/trusted_odom（位置和航向）→ Pure Pursuit → /cmd
   不会被伪装成 `m²`。
 - `header.stamp` 是主机收到完整校验通过报文的 ROS 时刻。GGA 只有 UTC 日内时间、没有日期，
   所以 UTC 字段只用于拒绝重复/倒退历元；该时间方案不满足自动恢复的测量时刻契约。
-- 节点不发布 `/localization/gps_pose`，也不会把 position-only 数据标成完整恢复输入。
-  `automatic_recovery_enabled` 默认 `false`；LIO 故障时继续禁止导航并保持零速。
+- 节点不发布 `/localization/gps_pose`，也不会把 position-only 数据标成控制输入。
 
-健康行驶的控制位置和航向原本就来自 LIO，因此没有 GPS 航向不会改变现有 Pure Pursuit
-控制策略。完整 GPS/LIO 自动恢复仍需独立可信航向、datum/map 对齐、时间同步、协方差标定和
-天线到 `base_link` 的外参。
+健康行驶的控制位置和航向来自 LIO，因此没有 GPS 航向不会改变当前顺序航点控制。
 
 ## 2. 串口为何保持为空
 
@@ -152,13 +154,11 @@ gps_serial_device:="$GPS_DEV" \
 gps_serial_baud_rate:="$GPS_BAUD" \
 gps_serial_data_bits:=8 \
 gps_serial_parity:=none \
-gps_serial_stop_bits:=1 \
-automatic_recovery_enabled:=false
+gps_serial_stop_bits:=1
 ```
 
 例如这些参数可追加到 `ros2 launch ugv_subject2_bringup subject2.launch.py ...` 或
-`subject2_horizon.launch.py ...`。没有可信航向前必须保持
-`automatic_recovery_enabled:=false`。
+`subject2_horizon.launch.py ...`。它们只启动 GPS 采集，不改变控制输入。
 
 ## 6. 参考样例的校验矛盾
 

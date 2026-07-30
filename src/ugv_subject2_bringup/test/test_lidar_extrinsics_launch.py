@@ -149,28 +149,61 @@ def _gps_nodes(nodes):
     ]
 
 
-def _recovery_parameters(nodes):
-    recovery = next(node for node in nodes if node.name == "recovery_coordinator")
-    return recovery.parameters[1]
-
-
 def _waypoint_controller_parameters(nodes):
     controller = next(node for node in nodes if node.name == "waypoint_controller_node")
     return controller.parameters[1]
 
 
-def test_production_config_default_cruise_speed_is_half_meter_per_second():
+def test_production_config_enables_confirmed_chassis_output_floors():
     config = (PACKAGE_ROOT / "config" / "subject2.yaml").read_text()
     controller_config = config.split("waypoint_controller_node:", maxsplit=1)[1]
-    nominal_speed = float(
-        re.search(r"^\s+nominal_speed:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE)[1]
-    )
-    max_speed = float(
-        re.search(r"^\s+max_speed:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE)[1]
-    )
 
-    assert nominal_speed == 0.5
-    assert max_speed >= nominal_speed
+    def number(name):
+        return float(
+            re.search(
+                rf"^\s+{name}:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE
+            )[1]
+        )
+
+    def text(name):
+        return re.search(
+            rf"^\s+{name}:\s+(\S+)\s*$", controller_config, re.MULTILINE
+        )[1]
+
+    assert re.search(
+        r"^\s+enhanced_tracking_enabled:\s+true\s*$",
+        controller_config,
+        re.MULTILINE,
+    )
+    assert number("nominal_speed") == 0.5
+    assert number("max_speed") == 1.0
+    assert number("max_yaw_rate") == 1.5
+    assert number("max_curvature") == 1.0
+    assert number("minimum_linear_speed") == 0.5
+    assert number("minimum_tracking_yaw_rate") == 1.0
+    assert number("minimum_turning_yaw_rate") == 1.5
+    assert number("lookahead_min_m") == 1.5
+    assert number("lookahead_max_m") == 3.0
+    assert number("lookahead_speed_gain") == 1.0
+    assert number("turning_motion_threshold_rad") == 0.05
+    assert number("turn_in_place_threshold_rad") == 0.70
+    assert number("turn_in_place_exit_threshold_rad") == 0.20
+    assert number("tracking_omega_enter_threshold_rad_s") == 0.05
+    assert number("tracking_omega_exit_threshold_rad_s") == 0.02
+    assert number("tracking_omega_exit_threshold_rad_s") < number(
+        "tracking_omega_enter_threshold_rad_s"
+    )
+    assert number("turn_in_place_exit_threshold_rad") < number(
+        "turn_in_place_threshold_rad"
+    )
+    assert number("waypoint_tolerance") == 0.5
+    assert number("goal_tolerance") == 0.5
+    assert number("slowdown_distance") == 1.2
+    assert number("transform_timeout_sec") == 0.05
+    assert text("odom_topic") == "/localization/odom"
+    assert text("odom_frame") == "odom"
+    assert text("base_frame") == "base_link"
+    assert text("expected_path_frame") == "map"
 
 
 @pytest.mark.parametrize("waypoint_file", ["", "relative/waypoints.csv"])
@@ -210,7 +243,11 @@ def test_default_disables_extrinsics_and_static_tf(launch_modules):
     assert _adapter_parameters(nodes) == {"extrinsics_valid": False}
     assert not _static_tf_nodes(nodes)
     assert not _gps_nodes(nodes)
-    assert _recovery_parameters(nodes) == {"automatic_recovery_enabled": False}
+    assert {node.name for node in nodes} == {
+        "lio_odom_adapter",
+        "map_odom_manager",
+        "waypoint_controller_node",
+    }
 
 
 def test_explicit_gps_serial_configuration_starts_position_only_adapter(launch_modules):
@@ -237,7 +274,6 @@ def test_explicit_gps_serial_configuration_starts_position_only_adapter(launch_m
         "parity": "none",
         "stop_bits": 1,
     }
-    assert _recovery_parameters(nodes) == {"automatic_recovery_enabled": False}
 
 
 @pytest.mark.parametrize(
@@ -269,18 +305,17 @@ def test_enabled_gps_rejects_incomplete_or_implicit_serial_configuration(
         module._launch_nodes(context)
 
 
-def test_automatic_recovery_requires_explicit_launch_enable(launch_modules):
+def test_production_launch_has_no_guard_or_recovery_switches(launch_modules):
     module = launch_modules("subject2.launch.py")
-    context = _resolved_context(
-        module.generate_launch_description(),
-        {
-            "waypoint_file": WAYPOINT_FILE,
-            "automatic_recovery_enabled": "true",
-        },
-    )
-    assert _recovery_parameters(module._launch_nodes(context)) == {
-        "automatic_recovery_enabled": True
+    description = module.generate_launch_description()
+    declared = {
+        entity.name
+        for entity in description.entities
+        if isinstance(entity, _DeclareLaunchArgument)
     }
+
+    assert "automatic_recovery_enabled" not in declared
+    assert "odom_snapshot_directory" not in declared
 
 
 def test_legacy_publish_true_also_enables_adapter_extrinsics(launch_modules):
@@ -362,7 +397,7 @@ def test_horizon_wrapper_declares_and_forwards_validity_switch(launch_modules):
     assert forwarded.name == "lidar_extrinsics_valid"
 
 
-def test_horizon_wrapper_forwards_gps_and_recovery_switches(launch_modules):
+def test_horizon_wrapper_forwards_gps_without_recovery_switches(launch_modules):
     module = launch_modules("subject2_horizon.launch.py")
     description = module.generate_launch_description()
     subject2_include = next(
@@ -378,10 +413,11 @@ def test_horizon_wrapper_forwards_gps_and_recovery_switches(launch_modules):
         "gps_serial_data_bits",
         "gps_serial_parity",
         "gps_serial_stop_bits",
-        "automatic_recovery_enabled",
     ):
         assert isinstance(forwarded[name], _LaunchConfiguration)
         assert forwarded[name].name == name
+    assert "automatic_recovery_enabled" not in forwarded
+    assert "odom_snapshot_directory" not in forwarded
 
 
 def test_horizon_wrapper_declares_and_forwards_waypoint_file(launch_modules):

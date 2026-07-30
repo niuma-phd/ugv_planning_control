@@ -67,15 +67,17 @@ public:
     update_sub_ = create_subscription<geometry_msgs::msg::TransformStamped>(
       "/localization/map_odom_update", rclcpp::QoS(10).reliable(),
       std::bind(&MapOdomManagerNode::onUpdate, this, std::placeholders::_1));
-    odom_valid_sub_ = create_subscription<std_msgs::msg::Bool>(
-      "/localization/odom_valid", rclcpp::QoS(1).reliable().transient_local(),
-      std::bind(&MapOdomManagerNode::onOdomValid, this, std::placeholders::_1));
+    if (require_odom_invalid_for_update_) {
+      odom_valid_sub_ = create_subscription<std_msgs::msg::Bool>(
+        "/localization/odom_valid", rclcpp::QoS(1).reliable().transient_local(),
+        std::bind(&MapOdomManagerNode::onOdomValid, this, std::placeholders::_1));
+    }
     if (auto_align_) {
       path_sub_ = create_subscription<nav_msgs::msg::Path>(
         declare_parameter<std::string>("path_topic", "/subject2/path"), rclcpp::QoS(1).reliable(),
         std::bind(&MapOdomManagerNode::onPath, this, std::placeholders::_1));
       odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-        declare_parameter<std::string>("odom_topic", "/localization/trusted_odom"), rclcpp::QoS(10),
+        declare_parameter<std::string>("odom_topic", "/localization/odom"), rclcpp::QoS(10),
         std::bind(&MapOdomManagerNode::onOdom, this, std::placeholders::_1));
       RCLCPP_WARN(get_logger(), "waiting to latch map->odom from path start and first canonical odom");
     } else if (!transform_ready_) {

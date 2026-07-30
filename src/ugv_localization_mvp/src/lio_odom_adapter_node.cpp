@@ -7,7 +7,6 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 
-#include "ugv_localization_mvp/ros_time.hpp"
 #include "ugv_localization_mvp/transform_math.hpp"
 
 namespace ugv_localization_mvp
@@ -35,8 +34,10 @@ public:
 
     odom_pub_ = create_publisher<nav_msgs::msg::Odometry>(output_topic, rclcpp::QoS(10));
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
+    auto input_qos = rclcpp::SensorDataQoS();
+    input_qos.keep_last(1);
     raw_sub_ = create_subscription<nav_msgs::msg::Odometry>(
-      input_topic, rclcpp::SensorDataQoS(),
+      input_topic, input_qos,
       std::bind(&LioOdomAdapterNode::onOdom, this, std::placeholders::_1));
 
     if (!extrinsics_valid_) {
@@ -50,11 +51,6 @@ private:
   void onOdom(const nav_msgs::msg::Odometry::SharedPtr msg)
   {
     if (!extrinsics_valid_) {return;}
-    if (!positiveRosTimeToNanoseconds(msg->header.stamp)) {
-      RCLCPP_ERROR_THROTTLE(
-        get_logger(), *get_clock(), 2000, "raw odom timestamp is invalid; dropping");
-      return;
-    }
     if (msg->header.frame_id != raw_world_frame_ || msg->child_frame_id != raw_lidar_frame_) {
       RCLCPP_ERROR_THROTTLE(
         get_logger(), *get_clock(), 2000,
@@ -76,7 +72,7 @@ private:
     }
 
     nav_msgs::msg::Odometry output;
-    output.header.stamp = msg->header.stamp;
+    output.header.stamp = now();
     output.header.frame_id = odom_frame_;
     output.child_frame_id = base_frame_;
     output.pose.pose.position.x = transform.translation.x;

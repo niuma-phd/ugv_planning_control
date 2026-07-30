@@ -1,13 +1,11 @@
 #include <functional>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iomanip>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -74,13 +72,11 @@ public:
       "expected_child_frame_id", "base_link");
     snapshot_directory_ = declare_parameter<std::string>("snapshot_directory", "/tmp/ugv_odom_guard");
     snapshot_basename_ = declare_parameter<std::string>("snapshot_basename", "last_good_odom");
-    const double watchdog_rate_hz = declare_parameter<double>("watchdog_rate_hz", 20.0);
     if (input_topic_.empty() || trusted_topic_.empty() || valid_topic_.empty() ||
       expected_frame_id_.empty() || expected_child_frame_id_.empty() ||
-      snapshot_directory_.empty() || snapshot_basename_.empty() ||
-      !std::isfinite(watchdog_rate_hz) || watchdog_rate_hz <= 0.0)
+      snapshot_directory_.empty() || snapshot_basename_.empty())
     {
-      throw std::invalid_argument("odom guard topics, frames, snapshot path, and rate must be valid");
+      throw std::invalid_argument("odom guard topics, frames, and snapshot path must be valid");
     }
     std::filesystem::create_directories(snapshot_directory_);
 
@@ -95,9 +91,6 @@ public:
     reset_service_ = create_service<std_srvs::srv::Trigger>(
       "/localization/reset_odom_fault",
       std::bind(&OdomGuardNode::onReset, this, std::placeholders::_1, std::placeholders::_2));
-    watchdog_timer_ = create_wall_timer(
-      std::chrono::duration<double>(1.0 / watchdog_rate_hz),
-      std::bind(&OdomGuardNode::onWatchdog, this));
     publishValid(false);
   }
 
@@ -105,10 +98,6 @@ private:
   OdomGuardSettings loadSettings()
   {
     OdomGuardSettings settings;
-    settings.max_age_s = declare_parameter<double>("max_age_s", settings.max_age_s);
-    max_age_s_ = settings.max_age_s;
-    settings.future_tolerance_s = declare_parameter<double>(
-      "future_tolerance_s", settings.future_tolerance_s);
     settings.quaternion_norm_tolerance = declare_parameter<double>(
       "quaternion_norm_tolerance", settings.quaternion_norm_tolerance);
     settings.max_translation_jump_m = declare_parameter<double>(
@@ -118,14 +107,9 @@ private:
     return settings;
   }
 
-  static std::optional<OdomSample> sampleFrom(const nav_msgs::msg::Odometry & msg)
+  static OdomSample sampleFrom(const nav_msgs::msg::Odometry & msg)
   {
-    const auto stamp_ns = positiveRosTimeToNanoseconds(msg.header.stamp);
-    if (!stamp_ns) {
-      return std::nullopt;
-    }
     OdomSample sample;
-    sample.stamp_ns = *stamp_ns;
     sample.x = msg.pose.pose.position.x;
     sample.y = msg.pose.pose.position.y;
     sample.z = msg.pose.pose.position.z;
@@ -155,14 +139,7 @@ private:
       return;
     }
     const auto sample = sampleFrom(*msg);
-    if (!sample) {
-      node_fault_ = OdomFault::kInvalidStamp;
-      handleFault(node_fault_);
-      return;
-    }
-    last_received_sample_ = *sample;
-    have_received_sample_ = true;
-    const OdomFault fault = core_.evaluate(*sample, now().nanoseconds());
+    const OdomFault fault = core_.evaluate(sample);
     if (fault != OdomFault::kNone) {
       handleFault(fault);
       return;
@@ -174,25 +151,6 @@ private:
     trusted_pub_->publish(last_good_msg_);
     last_good_pub_->publish(last_good_msg_);
     publishValid(true);
-  }
-
-  void onWatchdog()
-  {
-    std::lock_guard<std::mutex> lock(mutex_);
-    if (node_fault_ != OdomFault::kNone || core_.latched()) {
-      if (!snapshot_written_ && snapshot_attempts_ < kMaxSnapshotAttempts &&
-        have_last_good_msg_)
-      {
-        handleFault(
-          node_fault_ != OdomFault::kNone ? node_fault_ : core_.latchedFault());
-      }
-      return;
-    }
-    if (!have_received_sample_) {return;}
-    const double age_s = static_cast<double>(now().nanoseconds() - last_received_sample_.stamp_ns) / 1.0e9;
-    if (age_s <= max_age_s_) {return;}
-    const OdomFault fault = core_.evaluate(last_received_sample_, now().nanoseconds());
-    if (fault != OdomFault::kNone) {handleFault(fault);}
   }
 
   void handleFault(OdomFault fault)
@@ -257,7 +215,6 @@ private:
     std::lock_guard<std::mutex> lock(mutex_);
     core_.reset();
     node_fault_ = OdomFault::kNone;
-    have_received_sample_ = false;
     have_last_good_msg_ = false;
     snapshot_written_ = false;
     snapshot_attempts_ = 0U;
@@ -281,22 +238,18 @@ private:
   std::string snapshot_directory_;
   std::string snapshot_basename_;
   std::mutex mutex_;
-  double max_age_s_{0.30};
   OdomGuardCore core_;
-  bool have_received_sample_{false};
   bool have_last_good_msg_{false};
   bool snapshot_written_{false};
   static constexpr unsigned int kMaxSnapshotAttempts = 3U;
   unsigned int snapshot_attempts_{0U};
   OdomFault node_fault_{OdomFault::kNone};
-  OdomSample last_received_sample_{};
   nav_msgs::msg::Odometry last_good_msg_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr trusted_pub_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr last_good_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr valid_pub_;
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr odom_sub_;
   rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr reset_service_;
-  rclcpp::TimerBase::SharedPtr watchdog_timer_;
 };
 
 }  // namespace ugv_localization_mvp

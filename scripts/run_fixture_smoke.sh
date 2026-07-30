@@ -35,9 +35,7 @@ if [[ "$#" -ne 1 ]]; then
 fi
 
 VERIFY_MODE="${MODE}"
-EXPECTED_FAULT="stale"
 VERIFY_TIMEOUT="15.0"
-LAUNCH_ARGUMENTS=()
 WAYPOINT_SHAPE="left"
 
 case "${MODE}" in
@@ -49,60 +47,9 @@ case "${MODE}" in
   subject2_line)
     WAYPOINT_SHAPE="line"
     ;;
-  subject2_odom_timeout)
-    LAUNCH_ARGUMENTS+=("raw_odom_stop_after_s:=6.0")
-    VERIFY_TIMEOUT="15.0"
-    ;;
-  subject2_odom_jump)
-    EXPECTED_FAULT="translation_jump"
-    LAUNCH_ARGUMENTS+=("raw_odom_inject_jump_after_s:=6.0")
-    VERIFY_TIMEOUT="15.0"
-    ;;
-  subject2_odom_invalid_stamp)
-    EXPECTED_FAULT="invalid_stamp"
-    LAUNCH_ARGUMENTS+=(
-      "raw_odom_topic:=/localization/odom"
-      "raw_odom_frame_id:=odom"
-      "raw_odom_child_frame_id:=base_link"
-      "raw_odom_stamp_mode_after_s:=6.0"
-      "raw_odom_stamp_mode_after:=negative"
-    )
-    VERIFY_TIMEOUT="15.0"
-    ;;
   subject2_waypoint_file)
     WAYPOINT_SHAPE="waypoint_file"
     VERIFY_TIMEOUT="15.0"
-    ;;
-  subject2_recovery_success)
-    LAUNCH_ARGUMENTS+=(
-      "raw_odom_stop_after_s:=6.0"
-      "raw_odom_linear_speed_mps:=0.25"
-      "raw_odom_queued_old_samples_after_generation:=10"
-      "recovery_fixture_enabled:=true"
-      "recovery_scenario:=success"
-    )
-    WAYPOINT_SHAPE="line"
-    VERIFY_TIMEOUT="20.0"
-    ;;
-  subject2_recovery_no_gps)
-    LAUNCH_ARGUMENTS+=(
-      "raw_odom_stop_after_s:=6.0"
-      "raw_odom_linear_speed_mps:=0.25"
-      "recovery_fixture_enabled:=true"
-      "recovery_scenario:=no_gps"
-    )
-    WAYPOINT_SHAPE="line"
-    VERIFY_TIMEOUT="33.0"
-    ;;
-  subject2_recovery_restart_failed)
-    LAUNCH_ARGUMENTS+=(
-      "raw_odom_stop_after_s:=6.0"
-      "raw_odom_linear_speed_mps:=0.25"
-      "recovery_fixture_enabled:=true"
-      "recovery_scenario:=restart_failed"
-    )
-    WAYPOINT_SHAPE="line"
-    VERIFY_TIMEOUT="16.0"
     ;;
   *)
     cat >&2 <<'EOF'
@@ -113,21 +60,13 @@ case "${MODE}" in
   subject2
   subject2_right
   subject2_line
-  subject2_odom_timeout
-  subject2_odom_jump
-  subject2_odom_invalid_stamp
   subject2_waypoint_file
-  subject2_recovery_success
-  subject2_recovery_no_gps
-  subject2_recovery_restart_failed
 EOF
     exit 2
     ;;
 esac
 
 FIXTURE_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ugv_subject2_fixture.XXXXXX")"
-SNAPSHOT="${FIXTURE_DIR}/last_good_subject2_odom.json"
-LAUNCH_ARGUMENTS+=("odom_snapshot_directory:=${FIXTURE_DIR}")
 WAYPOINT_FILE="${FIXTURE_DIR}/${WAYPOINT_SHAPE}.csv"
 if [[ "${WAYPOINT_SHAPE}" == "waypoint_file" ]]; then
   cat >"${WAYPOINT_FILE}" <<'EOF'
@@ -169,12 +108,11 @@ with output.open("w", encoding="utf-8", newline="") as stream:
         writer.writerow(waypoint)
 PY
 fi
-LAUNCH_ARGUMENTS+=("waypoint_file:=${WAYPOINT_FILE}")
 LOG_FILE="${TMPDIR:-/tmp}/ugv_${MODE}_${ROS_DOMAIN_ID}.log"
 
 cd "${REPOSITORY_ROOT}"
 setsid ros2 launch ugv_mvp_tools subject2_fixture.launch.py \
-  "${LAUNCH_ARGUMENTS[@]}" >"${LOG_FILE}" 2>&1 &
+  "waypoint_file:=${WAYPOINT_FILE}" >"${LOG_FILE}" 2>&1 &
 LAUNCH_PID=$!
 
 cleanup_processes() {
@@ -205,8 +143,6 @@ trap cleanup_all EXIT INT TERM
 
 sleep 0.5
 python3 scripts/verify_fixture_runtime.py "${VERIFY_MODE}" \
-  --expected-fault "${EXPECTED_FAULT}" \
-  --snapshot "${SNAPSHOT}" \
   --timeout "${VERIFY_TIMEOUT}"
 
 cleanup_processes

@@ -1,9 +1,8 @@
-"""Bring up the real Horizon -> managed LIO -> Subject 2 MVP chain.
+"""Bring up the real Horizon -> managed LIO -> Subject 2 control chain.
 
-The Livox driver and LIO are kept as external packages.  This wrapper only
-connects their pinned launch files to the local subject2 bringup.  LIO runs in
-a dedicated child launch process owned by ``lio_process_supervisor`` so a
-recovery coordinator can restart exactly that process group.
+The Livox driver and LIO remain external packages. This optional wrapper owns
+their child process; the Subject 2 controller itself consumes canonical LIO
+odometry directly and does not start an odom guard or recovery coordinator.
 """
 
 import json
@@ -91,7 +90,6 @@ def generate_launch_description() -> LaunchDescription:
         ),
         launch_arguments={
             "config_file": LaunchConfiguration("subject2_config"),
-            "odom_snapshot_directory": LaunchConfiguration("odom_snapshot_directory"),
             "waypoint_file": LaunchConfiguration("waypoint_file"),
             "publish_lidar_static_tf": LaunchConfiguration("publish_lidar_static_tf"),
             "lidar_extrinsics_valid": LaunchConfiguration("lidar_extrinsics_valid"),
@@ -109,9 +107,6 @@ def generate_launch_description() -> LaunchDescription:
             "gps_serial_data_bits": LaunchConfiguration("gps_serial_data_bits"),
             "gps_serial_parity": LaunchConfiguration("gps_serial_parity"),
             "gps_serial_stop_bits": LaunchConfiguration("gps_serial_stop_bits"),
-            "automatic_recovery_enabled": LaunchConfiguration(
-                "automatic_recovery_enabled"
-            ),
         }.items(),
     )
 
@@ -152,10 +147,6 @@ def generate_launch_description() -> LaunchDescription:
                     [bringup_share, "config", "subject2.yaml"]
                 ),
             ),
-            DeclareLaunchArgument(
-                "odom_snapshot_directory",
-                default_value="/home/sunrise/.ros/ugv_mvp",
-            ),
             DeclareLaunchArgument("waypoint_file", default_value=""),
             DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
             DeclareLaunchArgument(
@@ -174,7 +165,6 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("gps_serial_data_bits", default_value=""),
             DeclareLaunchArgument("gps_serial_parity", default_value=""),
             DeclareLaunchArgument("gps_serial_stop_bits", default_value=""),
-            DeclareLaunchArgument("automatic_recovery_enabled", default_value="false"),
             driver,
             OpaqueFunction(
                 function=_lio_supervisor,

@@ -1,5 +1,4 @@
 import math
-import os
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, OpaqueFunction
@@ -39,12 +38,11 @@ def _explicit_positive_int(context, name: str) -> int:
 
 def _launch_nodes(context):
     config_file = LaunchConfiguration("config_file")
-    snapshot_directory = LaunchConfiguration("odom_snapshot_directory")
     waypoint_file = LaunchConfiguration("waypoint_file").perform(context)
     if not waypoint_file:
         raise RuntimeError("waypoint_file must be supplied explicitly")
-    if not os.path.isabs(waypoint_file):
-        raise RuntimeError("waypoint_file must be an explicit absolute path")
+    if not waypoint_file.startswith("/"):
+        raise RuntimeError("waypoint_file must be an explicit Linux absolute path")
     extrinsics_valid = IfCondition(
         LaunchConfiguration("lidar_extrinsics_valid")
     ).evaluate(context)
@@ -162,30 +160,6 @@ def _launch_nodes(context):
             parameters=[config_file],
         ),
         Node(
-            package="ugv_localization_mvp",
-            executable="odom_guard_node",
-            name="odom_guard",
-            output="screen",
-            parameters=[
-                config_file,
-                {"snapshot_directory": snapshot_directory},
-            ],
-        ),
-        Node(
-            package="ugv_localization_mvp",
-            executable="recovery_coordinator_node",
-            name="recovery_coordinator",
-            output="screen",
-            parameters=[
-                config_file,
-                {
-                    "automatic_recovery_enabled": IfCondition(
-                        LaunchConfiguration("automatic_recovery_enabled")
-                    ).evaluate(context)
-                },
-            ],
-        ),
-        Node(
             package="ugv_subject2_mvp",
             executable="waypoint_controller_node",
             name="waypoint_controller_node",
@@ -205,10 +179,6 @@ def generate_launch_description() -> LaunchDescription:
                 [FindPackageShare("ugv_subject2_bringup"), "config", "subject2.yaml"]
             ),
         ),
-        DeclareLaunchArgument(
-            "odom_snapshot_directory",
-            default_value="/home/sunrise/.ros/ugv_mvp",
-        ),
         DeclareLaunchArgument("waypoint_file", default_value=""),
         DeclareLaunchArgument("publish_lidar_static_tf", default_value="false"),
         DeclareLaunchArgument(
@@ -227,6 +197,5 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("gps_serial_data_bits", default_value=""),
         DeclareLaunchArgument("gps_serial_parity", default_value=""),
         DeclareLaunchArgument("gps_serial_stop_bits", default_value=""),
-        DeclareLaunchArgument("automatic_recovery_enabled", default_value="false"),
     ]
     return LaunchDescription(arguments + [OpaqueFunction(function=_launch_nodes)])

@@ -149,6 +149,13 @@ private:
     }
     reset_gps_history();
     publish_stop();
+    if (!received_valid_fix_once_) {
+      publish_status("WAITING_FOR_VALID_GNGGA");
+      RCLCPP_INFO_THROTTLE(
+        get_logger(), *get_clock(), 2000,
+        "waiting for the first accepted GNGGA sample");
+      return;
+    }
     publish_status("GPS_QUALITY_INVALID_STOP");
     RCLCPP_ERROR_THROTTLE(
       get_logger(), *get_clock(), 2000,
@@ -205,6 +212,7 @@ private:
     last_fix_received_at_ = received_at;
     last_position_received_at_ = received_at;
     last_accepted_position_ = current;
+    received_valid_fix_once_ = true;
     CourseObservation course{course_estimator_->yaw(), false};
     // Establish the first anchor immediately. Afterwards, update moving course
     // only while a positive command is actually being sent; stationary
@@ -319,6 +327,7 @@ private:
   bool motion_enabled_{false};
   bool heading_unobservable_latched_{false};
   bool position_jump_latched_{false};
+  bool received_valid_fix_once_{false};
   bool goal_reported_{false};
   double fix_timeout_sec_{2.5};
   double maximum_position_speed_mps_{3.0};

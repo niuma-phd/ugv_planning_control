@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 ERRORS: list[str] = []
 ACTIVE_PACKAGES = {
+    "ugv_gps_waypoint_control",
     "ugv_localization_mvp",
     "ugv_mvp_tools",
     "ugv_subject2_bringup",
@@ -120,12 +121,18 @@ def check_packages() -> None:
     localization_dependencies = package_dependencies(
         "src/ugv_localization_mvp/package.xml"
     )
+    gps_dependencies = package_dependencies(
+        "src/ugv_gps_waypoint_control/package.xml"
+    )
     subject2_dependencies = package_dependencies("src/ugv_subject2_mvp/package.xml")
     bringup_dependencies = package_dependencies("src/ugv_subject2_bringup/package.xml")
     tool_dependencies = package_dependencies("src/ugv_mvp_tools/package.xml")
     if (
         "ugv_mvp_tools"
-        in localization_dependencies | subject2_dependencies | bringup_dependencies
+        in localization_dependencies
+        | gps_dependencies
+        | subject2_dependencies
+        | bringup_dependencies
     ):
         ERRORS.append("production packages must not depend on ugv_mvp_tools")
     required_bringup = {"ugv_localization_mvp", "ugv_subject2_mvp"}
@@ -137,6 +144,13 @@ def check_packages() -> None:
         )
     if "ugv_subject2_bringup" not in tool_dependencies:
         ERRORS.append("src/ugv_mvp_tools/package.xml: missing ugv_subject2_bringup")
+    required_gps = {"ugv_localization_mvp", "ugv_subject2_mvp"}
+    missing_gps = sorted(required_gps - gps_dependencies)
+    if missing_gps:
+        ERRORS.append(
+            "src/ugv_gps_waypoint_control/package.xml: missing dependencies "
+            f"{missing_gps}"
+        )
 
 
 def check_subject2_build_script() -> None:

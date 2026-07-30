@@ -31,6 +31,7 @@ gga_serial:
     # serial configuration is supplied. GPS is not a control input.
     antenna_frame: gps_link
     fix_topic: /gps/fix
+    validated_fix_topic: /gps/validated_fix
     position_valid_topic: /gps/gga_position_valid
     raw_sentence_topic: /gps/gga_sentence
     poll_rate_hz: 50.0
@@ -38,7 +39,7 @@ gga_serial:
     fix_timeout_sec: 1.0
     reconnect_period_sec: 2.0
     maximum_sentence_length: 128
-    accepted_sentence_ids: [GPGGA]
+    accepted_sentence_ids: [GPGGA, GNGGA]
     quality_profile_valid: false
     accepted_fix_qualities: [1, 2, 4, 5, 6, 8, 9]
     minimum_satellites: 1

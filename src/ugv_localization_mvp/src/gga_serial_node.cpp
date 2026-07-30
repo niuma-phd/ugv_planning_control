@@ -12,6 +12,7 @@
 #include <poll.h>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <termios.h>
@@ -65,6 +66,12 @@ bool sentenceIdValid(const std::string & sentence_id)
          });
 }
 
+bool hasGgaSentenceType(std::string_view sentence)
+{
+  return sentence.size() >= 6U && sentence.front() == '$' &&
+         sentence.substr(3U, 3U) == "GGA";
+}
+
 }  // namespace
 
 class GgaSerialNode : public rclcpp::Node
@@ -101,15 +108,24 @@ public:
     quality_settings_.maximum_hdop = maximum_hdop_;
 
     const auto fix_topic = declare_parameter<std::string>("fix_topic", "/gps/fix");
+    const auto validated_fix_topic = declare_parameter<std::string>(
+      "validated_fix_topic", "/gps/validated_fix");
     const auto valid_topic = declare_parameter<std::string>(
       "position_valid_topic", "/gps/gga_position_valid");
     const auto raw_topic = declare_parameter<std::string>(
       "raw_sentence_topic", "/gps/gga_sentence");
-    if (fix_topic.empty() || valid_topic.empty() || raw_topic.empty()) {
+    if (fix_topic.empty() || validated_fix_topic.empty() || valid_topic.empty() ||
+      raw_topic.empty())
+    {
       throw std::invalid_argument("GGA output topics must not be empty");
+    }
+    if (fix_topic == validated_fix_topic) {
+      throw std::invalid_argument("fix_topic and validated_fix_topic must be different");
     }
 
     fix_pub_ = create_publisher<sensor_msgs::msg::NavSatFix>(fix_topic, rclcpp::QoS(10).reliable());
+    validated_fix_pub_ = create_publisher<sensor_msgs::msg::NavSatFix>(
+      validated_fix_topic, rclcpp::QoS(10).reliable());
     valid_pub_ = create_publisher<std_msgs::msg::Bool>(valid_topic, rclcpp::QoS(10).reliable());
     raw_pub_ = create_publisher<std_msgs::msg::String>(raw_topic, rclcpp::QoS(10).reliable());
     timer_ = create_wall_timer(
@@ -286,6 +302,9 @@ private:
 
   void processSentence(const std::string & sentence)
   {
+    // Other NMEA sentence types are receiver chatter, not failed GGA samples.
+    if (!hasGgaSentenceType(sentence)) {return;}
+
     GgaFix fix;
     std::string reason;
     if (!parseGgaSentence(sentence, fix, reason)) {
@@ -336,6 +355,7 @@ private:
     fix_pub_->publish(output);
 
     if (accepted) {
+      validated_fix_pub_->publish(output);
       last_valid_fix_at_ = steadyNow();
       setPositionValid(true);
     } else {
@@ -447,6 +467,7 @@ private:
   SteadyClock::time_point next_open_attempt_at_{};
   SteadyClock::time_point last_status_publish_at_{};
   rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr fix_pub_;
+  rclcpp::Publisher<sensor_msgs::msg::NavSatFix>::SharedPtr validated_fix_pub_;
   rclcpp::Publisher<std_msgs::msg::Bool>::SharedPtr valid_pub_;
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr raw_pub_;
   rclcpp::TimerBase::SharedPtr timer_;

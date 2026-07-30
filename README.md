@@ -28,6 +28,9 @@
   GGA 没有航向，所以正常控制仍完全使用 LIO，默认不启用 GPS/LIO 自动恢复。
 
 详见[科目二自主导航使用说明](docs/科目二_自主导航使用说明.md)。
+独立的 GPS 单点定位测试链见
+[GPS 单点定位顺序压点说明](docs/GPS单点定位顺序压点说明.md)；它不改变原 LIO 启动方式，
+并使用单独的构建目录。
 旧 guard/recovery 测试记录保留在[科目二航点文件接入与测试手册](docs/科目二_上游接入与测试手册.md)，
 不要把其中旧启动参数用于当前生产链。
 另一台设备或 AI 从 GitHub 取得精确版本并部署到 RDK 时，使用
@@ -42,6 +45,10 @@
 # ugv_localization_mvp ugv_subject2_mvp ugv_subject2_bringup
 scripts/build_subject2.sh --clean
 source install_subject2/setup.bash
+
+# 独立 GPS 单点定位压点链：
+scripts/build_gps_subject2.sh --clean
+source install_gps/setup.bash
 ```
 
 构建产物位于 `build_subject2/`、`install_subject2/`、`log_subject2/`。
@@ -83,6 +90,7 @@ ROS_DOMAIN_ID=171 scripts/run_fixture_smoke.sh subject2
 - [旧 guard/recovery 航点测试记录](docs/科目二_上游接入与测试手册.md)
 - [实车接口、TF、测量回填与剩余待办](docs/实车接口与待办.md)
 - [GPGGA 串口接入与串口查询](docs/GGA串口接入说明.md)
+- [GPS 单点定位顺序压点测试链](docs/GPS单点定位顺序压点说明.md)
 - [从 GitHub 取得精确版本并部署到 RDK](RDK_DEPLOYMENT.md)
 
 ## 安全边界

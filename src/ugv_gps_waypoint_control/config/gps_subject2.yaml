@@ -1,0 +1,50 @@
+gga_serial:
+  ros__parameters:
+    device: /dev/ttyUSB0
+    baud_rate: 115200
+    data_bits: 8
+    parity: none
+    stop_bits: 1
+    antenna_frame: gps_link
+    fix_topic: /gps/fix
+    validated_fix_topic: /gps/validated_fix
+    position_valid_topic: /gps/gga_position_valid
+    raw_sentence_topic: /gps/gga_sentence
+    poll_rate_hz: 50.0
+    status_rate_hz: 5.0
+    fix_timeout_sec: 2.5
+    reconnect_period_sec: 2.0
+    maximum_sentence_length: 128
+    # The receiver emits GNGGA. GNTXT and every other NMEA sentence are ignored.
+    accepted_sentence_ids: [GNGGA]
+    # Initial fail-closed profile is based only on the live RDK sample window:
+    # fix quality=1, satellites=12, HDOP=0.76..0.80.
+    quality_profile_valid: true
+    accepted_fix_qualities: [1]
+    minimum_satellites: 12
+    maximum_hdop: 0.80
+
+gps_waypoint_controller:
+  ros__parameters:
+    # The launch argument must explicitly switch this to true for a vehicle test.
+    motion_enabled: false
+    validated_fix_topic: /gps/validated_fix
+    position_valid_topic: /gps/gga_position_valid
+    # Do not derive course from adjacent 1 Hz single-point fixes. Keep the
+    # supplied cardinal yaw until at least this much EN displacement accumulates.
+    course_update_min_distance_m: 5.0
+    fix_timeout_sec: 2.5
+    # User-confirmed vehicle speed never exceeds 3 m/s. A faster apparent GPS
+    # change is latched as a coordinate jump and requires restarting the launch.
+    maximum_position_speed_mps: 3.0
+    watchdog_rate_hz: 20.0
+    nominal_speed: 0.50
+    max_speed: 1.00
+    max_yaw_rate: 0.40
+    max_curvature: 1.00
+    turn_in_place_threshold_rad: 1.0472
+    slowdown_distance: 3.00
+    # Single-point GPS cannot support the old 0.30 m LIO tolerances. These are
+    # explicit initial field values and must be tuned from closed-course data.
+    waypoint_tolerance: 1.50
+    goal_tolerance: 1.50

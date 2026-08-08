@@ -75,6 +75,32 @@ struct ControlOutput
   bool minimum_angular_applied{false};
 };
 
+class TrackingYawPulseShaper
+{
+public:
+  TrackingYawPulseShaper(
+    double publish_rate_hz = 20.0,
+    double minimum_yaw_rate = 1.0,
+    double minimum_pulse_duration_sec = 0.10);
+
+  void set_config(
+    double publish_rate_hz,
+    double minimum_yaw_rate,
+    double minimum_pulse_duration_sec) noexcept;
+  bool config_is_valid() const noexcept;
+  double step(double desired_yaw_rate, bool correction_active) noexcept;
+  void reset() noexcept;
+
+private:
+  double publish_rate_hz_{20.0};
+  double minimum_yaw_rate_{1.0};
+  double minimum_pulse_duration_sec_{0.10};
+  double pulse_accumulator_{0.0};
+  double pulse_direction_{0.0};
+  std::size_t minimum_pulse_ticks_{2U};
+  std::size_t remaining_pulse_ticks_{0U};
+};
+
 class PurePursuitController
 {
 public:

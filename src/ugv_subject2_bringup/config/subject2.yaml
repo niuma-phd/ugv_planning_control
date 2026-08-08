@@ -64,8 +64,8 @@ waypoint_controller_node:
     lookahead_min_m: 1.50
     lookahead_max_m: 3.00
     lookahead_speed_gain: 1.00
-    # After LIO yaw changes by this amount, an in-place turn has broken static
-    # friction and may use the lower moving yaw floor.
+    # Retained as a diagnostic threshold. While ALIGN remains active the
+    # stationary yaw floor stays in force; it never drops to the moving floor.
     turning_motion_threshold_rad: 0.05
     # Enter/exit hysteresis prevents ALIGN/TRACK chatter. TRACK thresholds are
     # applied to the standard Pure Pursuit raw omega before the chassis floor.
@@ -81,3 +81,26 @@ waypoint_controller_node:
     odom_frame: odom
     base_frame: base_link
     expected_path_frame: map
+    # Decouple /cmd_vel publication from the LIO callback. The command lease
+    # must be strictly longer than two publication periods.
+    command_publish_rate_hz: 20.0
+    command_hold_timeout_sec: 0.30
+    tracking_yaw_pulse_enabled: true
+    tracking_yaw_min_pulse_sec: 0.10
+    tracking_yaw_demand_gain: 1.0
+    # Optional chassis breakaway helper. It is disabled by default and in the
+    # field-validated profile below; enable it only for a dedicated test.
+    stall_boost_enabled: false
+    stall_detection_duration_sec: 0.80
+    stall_observation_gap_reset_sec: 0.30
+    stall_motion_translation_threshold_m: 0.05
+    stall_motion_yaw_threshold_rad: 0.03
+    stall_min_linear_command_mps: 0.30
+    stall_min_angular_command_rad_s: 0.50
+    stall_linear_boost_speed_mps: 1.00
+    stall_angular_boost_rate_rad_s: 1.50
+    stall_boost_min_duration_sec: 0.40
+    stall_boost_max_duration_sec: 1.00
+    stall_boost_ramp_down_sec: 0.80
+    stall_boost_cooldown_sec: 1.00
+    stall_boost_max_attempts: 3

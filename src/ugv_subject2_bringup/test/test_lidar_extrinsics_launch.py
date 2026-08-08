@@ -206,6 +206,53 @@ def test_production_config_enables_confirmed_chassis_output_floors():
     assert text("expected_path_frame") == "map"
 
 
+def test_field_verified_profile_locks_the_live_vehicle_baseline():
+    config = (PACKAGE_ROOT / "config" / "subject2_field_verified.yaml").read_text()
+    controller_config = config.split("waypoint_controller_node:", maxsplit=1)[1]
+
+    def number(name):
+        return float(
+            re.search(
+                rf"^\s+{name}:\s+([0-9.]+)\s*$", controller_config, re.MULTILINE
+            )[1]
+        )
+
+    def boolean(name):
+        return (
+            re.search(
+                rf"^\s+{name}:\s+(true|false)\s*$", controller_config, re.MULTILINE
+            )[1]
+            == "true"
+        )
+
+    assert "odom_guard:" not in config
+    assert "recovery_coordinator:" not in config
+    assert re.search(r"^\s+auto_align_from_path:\s+false\s*$", config, re.MULTILINE)
+    assert number("nominal_speed") == 1.5
+    assert number("max_speed") == 1.5
+    assert number("max_yaw_rate") == 2.0
+    assert number("max_curvature") == 0.10
+    assert number("minimum_linear_speed") == 1.0
+    assert number("minimum_tracking_yaw_rate") == 0.10
+    assert number("minimum_turning_yaw_rate") == 2.0
+    assert number("lookahead_min_m") == 8.0
+    assert number("lookahead_max_m") == 12.0
+    assert number("lookahead_speed_gain") == 2.0
+    assert number("turn_in_place_threshold_rad") == 1.50
+    assert number("turn_in_place_exit_threshold_rad") == 0.70
+    assert number("tracking_omega_enter_threshold_rad_s") == 0.075
+    assert number("tracking_omega_exit_threshold_rad_s") == 0.040
+    assert number("waypoint_tolerance") == 2.0
+    assert number("goal_tolerance") == 2.0
+    assert number("command_publish_rate_hz") == 0.5
+    assert number("command_hold_timeout_sec") == 4.10
+    assert number("command_hold_timeout_sec") > 2.0 / number(
+        "command_publish_rate_hz"
+    )
+    assert not boolean("tracking_yaw_pulse_enabled")
+    assert not boolean("stall_boost_enabled")
+
+
 @pytest.mark.parametrize("waypoint_file", ["", "relative/waypoints.csv"])
 def test_waypoint_file_is_required_and_must_be_absolute(
     launch_modules, waypoint_file

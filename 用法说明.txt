@@ -1,0 +1,38 @@
+WGS84 航点转换程序用法说明
+============================
+
+程序：scripts\convert_wgs84_waypoints.py
+输入：仓库根目录 track_output.txt
+输出：仓库根目录 watpoints_odom.csv
+
+输入格式（分号分隔）：
+序号;经度;纬度;高程
+1;120.00000000;30.00000000;0
+2;120.00010000;30.00000000;0
+
+序号必须严格递增。第一点既是 odom 的 WGS84 原点，也保留为输出第一点
+(0,0)。转换假设 LIO 启动时 odom 原点为 (0,0)，+x 指向车头，+y 指向
+车辆左侧。
+
+在仓库根目录按初始车头真航向运行一个命令：
+
+  python .\scripts\convert_wgs84_waypoints.py --heading N
+  python .\scripts\convert_wgs84_waypoints.py --heading E
+  python .\scripts\convert_wgs84_waypoints.py --heading S
+  python .\scripts\convert_wgs84_waypoints.py --heading W
+
+N/E/S/W 分别表示正北/正东/正南/正西。已有输出且确认要覆盖时加 --force。
+任意航向使用从真北顺时针的角度，例如：
+
+  python .\scripts\convert_wgs84_waypoints.py --heading-deg 135 --force
+
+查看帮助：
+
+  python .\scripts\convert_wgs84_waypoints.py --help
+
+转换后先检查点数、点序、方向和距离，再上传为 RDK 控制器使用的文件：
+
+  scp .\watpoints_odom.csv sunrise@192.168.188.227:/home/sunrise/waypoints.csv
+
+脚本只转换文件，不会启动 LIO、控制器或车辆。详细说明见：
+docs\WGS84航点转换说明.md

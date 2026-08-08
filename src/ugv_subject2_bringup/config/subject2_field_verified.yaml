@@ -1,0 +1,73 @@
+# Field baseline confirmed on the current RDK S100 tracked differential UGV.
+# This is not a universal vehicle profile. Copy it outside the repository as
+# /home/sunrise/subject2_field.yaml and revalidate after changing chassis,
+# battery, LIO, route, terrain, or lidar mounting.
+lio_odom_adapter:
+  ros__parameters:
+    input_topic: /livox_odometry_mapped
+    output_topic: /localization/odom
+    raw_world_frame: world
+    raw_lidar_frame: livox_frame
+    odom_frame: odom
+    base_frame: base_link
+    extrinsics_valid: false
+
+map_odom_manager:
+  ros__parameters:
+    map_frame: map
+    odom_frame: odom
+    base_frame: base_link
+    auto_align_from_path: false
+    publish_rate_hz: 20.0
+    initial.x: 0.0
+    initial.y: 0.0
+    initial.z: 0.0
+    initial.roll: 0.0
+    initial.pitch: 0.0
+    initial.yaw: 0.0
+
+waypoint_controller_node:
+  ros__parameters:
+    nominal_speed: 1.5
+    max_speed: 1.5
+    max_yaw_rate: 2.0
+    max_curvature: 0.10
+    enhanced_tracking_enabled: true
+    minimum_linear_speed: 1.0
+    minimum_tracking_yaw_rate: 0.10
+    minimum_turning_yaw_rate: 2.0
+    turning_motion_threshold_rad: 0.05
+    turn_in_place_threshold_rad: 1.50
+    turn_in_place_exit_threshold_rad: 0.70
+    slowdown_distance: 5.0
+    waypoint_tolerance: 2.0
+    goal_tolerance: 2.0
+    transform_timeout_sec: 0.05
+    odom_topic: /localization/odom
+    odom_frame: odom
+    base_frame: base_link
+    expected_path_frame: map
+    lookahead_min_m: 8.0
+    lookahead_max_m: 12.0
+    lookahead_speed_gain: 2.0
+    tracking_omega_enter_threshold_rad_s: 0.075
+    tracking_omega_exit_threshold_rad_s: 0.040
+    command_publish_rate_hz: 0.5
+    command_hold_timeout_sec: 4.10
+    tracking_yaw_pulse_enabled: false
+    tracking_yaw_min_pulse_sec: 2.00
+    tracking_yaw_demand_gain: 1.0
+    stall_boost_enabled: false
+    stall_detection_duration_sec: 0.75
+    stall_observation_gap_reset_sec: 0.30
+    stall_motion_translation_threshold_m: 0.05
+    stall_motion_yaw_threshold_rad: 0.03
+    stall_min_linear_command_mps: 0.30
+    stall_min_angular_command_rad_s: 0.50
+    stall_linear_boost_speed_mps: 1.5
+    stall_angular_boost_rate_rad_s: 2.0
+    stall_boost_min_duration_sec: 0.40
+    stall_boost_max_duration_sec: 1.00
+    stall_boost_ramp_down_sec: 0.80
+    stall_boost_cooldown_sec: 1.00
+    stall_boost_max_attempts: 3

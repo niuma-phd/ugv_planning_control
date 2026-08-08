@@ -9,6 +9,8 @@ if(BUILD_TESTING)
     test/test_lio_process_supervisor.py)
   ament_add_pytest_test(test_lidar_extrinsics_launch
     test/test_lidar_extrinsics_launch.py)
+  ament_add_pytest_test(test_convert_wgs84_waypoints
+    test/test_convert_wgs84_waypoints.py)
 endif()
 
 install(DIRECTORY launch config

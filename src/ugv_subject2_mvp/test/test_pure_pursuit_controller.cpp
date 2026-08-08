@@ -12,6 +12,7 @@ using ugv_subject2_mvp::ControlInput;
 using ugv_subject2_mvp::ControllerConfig;
 using ugv_subject2_mvp::Point2D;
 using ugv_subject2_mvp::PurePursuitController;
+using ugv_subject2_mvp::TrackingYawPulseShaper;
 
 constexpr double kPi = 3.14159265358979323846;
 
@@ -38,6 +39,84 @@ ControllerConfig enhanced_config()
   config.tracking_omega_enter_threshold_rad_s = 0.05;
   config.tracking_omega_exit_threshold_rad_s = 0.02;
   return config;
+}
+
+TEST(TrackingYawPulseShaper, RejectsInvalidConfiguration)
+{
+  TrackingYawPulseShaper zero_rate(0.0, 1.0, 0.10);
+  TrackingYawPulseShaper zero_amplitude(20.0, 0.0, 0.10);
+  TrackingYawPulseShaper zero_duration(20.0, 1.0, 0.0);
+
+  EXPECT_FALSE(zero_rate.config_is_valid());
+  EXPECT_FALSE(zero_amplitude.config_is_valid());
+  EXPECT_FALSE(zero_duration.config_is_valid());
+  EXPECT_DOUBLE_EQ(zero_rate.step(0.2, true), 0.0);
+}
+
+TEST(TrackingYawPulseShaper, PassesDemandAtOrAbovePhysicalMinimum)
+{
+  TrackingYawPulseShaper shaper(20.0, 1.0, 0.10);
+
+  EXPECT_DOUBLE_EQ(shaper.step(1.0, true), 1.0);
+  EXPECT_DOUBLE_EQ(shaper.step(-1.2, true), -1.2);
+}
+
+TEST(TrackingYawPulseShaper, ConvertsSubFloorDemandIntoMinimumLengthPulses)
+{
+  TrackingYawPulseShaper shaper(20.0, 1.0, 0.10);
+  constexpr int sample_count = 200;
+  int nonzero_samples = 0;
+  int shortest_pulse_run = sample_count;
+  int current_pulse_run = 0;
+  double sum = 0.0;
+
+  for (int sample = 0; sample < sample_count; ++sample) {
+    const double command = shaper.step(0.2, true);
+    EXPECT_TRUE(command == 0.0 || command == 1.0);
+    sum += command;
+    if (command != 0.0) {
+      ++nonzero_samples;
+      ++current_pulse_run;
+    } else if (current_pulse_run > 0) {
+      shortest_pulse_run = std::min(shortest_pulse_run, current_pulse_run);
+      current_pulse_run = 0;
+    }
+  }
+  // The finite observation window may end in the middle of a two-tick pulse,
+  // so only completed runs participate in the minimum-duration assertion.
+  EXPECT_GE(nonzero_samples, 39);
+  EXPECT_LE(nonzero_samples, 40);
+  EXPECT_EQ(shortest_pulse_run, 2);
+  EXPECT_LE(
+    std::abs(sum / static_cast<double>(sample_count) - 0.2),
+    1.0 / static_cast<double>(sample_count) + 1.0e-12);
+}
+
+TEST(TrackingYawPulseShaper, InactiveCorrectionResetsPendingPulse)
+{
+  TrackingYawPulseShaper shaper(20.0, 1.0, 0.10);
+  for (int sample = 0; sample < 9; ++sample) {
+    EXPECT_DOUBLE_EQ(shaper.step(0.2, true), 0.0);
+  }
+
+  EXPECT_DOUBLE_EQ(shaper.step(0.2, false), 0.0);
+  for (int sample = 0; sample < 9; ++sample) {
+    EXPECT_DOUBLE_EQ(shaper.step(0.2, true), 0.0);
+  }
+  EXPECT_DOUBLE_EQ(shaper.step(0.2, true), 1.0);
+}
+
+TEST(TrackingYawPulseShaper, DirectionChangeDropsResidualDemand)
+{
+  TrackingYawPulseShaper shaper(20.0, 1.0, 0.10);
+  for (int sample = 0; sample < 9; ++sample) {
+    EXPECT_DOUBLE_EQ(shaper.step(0.2, true), 0.0);
+  }
+
+  for (int sample = 0; sample < 9; ++sample) {
+    EXPECT_DOUBLE_EQ(shaper.step(-0.2, true), 0.0);
+  }
+  EXPECT_DOUBLE_EQ(shaper.step(-0.2, true), -1.0);
 }
 
 TEST(PurePursuitController, DrivesStraightTowardNextOrderedWaypoint)
@@ -512,7 +591,7 @@ TEST(PurePursuitController, StandardPursuitRaisesOnlyNonzeroLinearCommands)
   EXPECT_DOUBLE_EQ(goal.angular_velocity, 0.0);
 }
 
-TEST(PurePursuitController, StandardPursuitUsesStationaryTurnBreakawayAndHysteresis)
+TEST(PurePursuitController, StandardPursuitUsesStationaryTurnFloorAndHysteresis)
 {
   PurePursuitController controller(enhanced_config());
   const std::vector<Point2D> path{{0.0, 0.0}, {0.0, 2.0}};
@@ -527,7 +606,7 @@ TEST(PurePursuitController, StandardPursuitUsesStationaryTurnBreakawayAndHystere
   const auto moving = controller.compute(make_input(0.0, 0.0, 1.0), path);
   EXPECT_TRUE(moving.turning_in_place);
   EXPECT_FALSE(moving.turning_breakaway_active);
-  EXPECT_DOUBLE_EQ(moving.angular_velocity, 1.0);
+  EXPECT_DOUBLE_EQ(moving.angular_velocity, 1.5);
 
   const auto aligned = controller.compute(make_input(0.0, 0.0, 1.40), path);
   EXPECT_FALSE(aligned.turning_in_place);
@@ -646,7 +725,7 @@ TEST(PurePursuitController, StandardPursuitWrapsTrackingErrorAcrossPi)
   EXPECT_DOUBLE_EQ(output.angular_velocity, 0.0);
 }
 
-TEST(PurePursuitController, StandardPursuitDropsBreakawayFloorOnlyAfterMeasuredYawChange)
+TEST(PurePursuitController, StandardPursuitKeepsStationaryTurnFloorAfterMeasuredYawChange)
 {
   PurePursuitController controller(enhanced_config());
   const double target_yaw = 0.80;
@@ -661,7 +740,12 @@ TEST(PurePursuitController, StandardPursuitDropsBreakawayFloorOnlyAfterMeasuredY
 
   const auto above = controller.compute(make_input(0.0, 0.0, 0.051), path);
   EXPECT_FALSE(above.turning_breakaway_active);
-  EXPECT_DOUBLE_EQ(above.angular_velocity, 1.0);
+  EXPECT_DOUBLE_EQ(above.angular_velocity, 1.5);
+
+  const auto repeated = controller.compute(make_input(0.0, 0.0, 0.051), path);
+  EXPECT_TRUE(repeated.turning_in_place);
+  EXPECT_DOUBLE_EQ(repeated.linear_velocity, 0.0);
+  EXPECT_DOUBLE_EQ(repeated.angular_velocity, 1.5);
 }
 
 TEST(PurePursuitController, FieldRouteTurnsStraddleConfiguredRawOmegaDeadband)

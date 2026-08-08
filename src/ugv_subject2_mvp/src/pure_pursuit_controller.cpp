@@ -12,6 +12,88 @@ constexpr double kMinimumSquaredDistance = 1.0e-8;
 constexpr double kPi = 3.14159265358979323846;
 }
 
+TrackingYawPulseShaper::TrackingYawPulseShaper(
+  const double publish_rate_hz,
+  const double minimum_yaw_rate,
+  const double minimum_pulse_duration_sec)
+{
+  set_config(publish_rate_hz, minimum_yaw_rate, minimum_pulse_duration_sec);
+}
+
+void TrackingYawPulseShaper::set_config(
+  const double publish_rate_hz,
+  const double minimum_yaw_rate,
+  const double minimum_pulse_duration_sec) noexcept
+{
+  publish_rate_hz_ = publish_rate_hz;
+  minimum_yaw_rate_ = minimum_yaw_rate;
+  minimum_pulse_duration_sec_ = minimum_pulse_duration_sec;
+  if (config_is_valid()) {
+    minimum_pulse_ticks_ = std::max<std::size_t>(
+      1U, static_cast<std::size_t>(
+        std::ceil(publish_rate_hz_ * minimum_pulse_duration_sec_)));
+  } else {
+    minimum_pulse_ticks_ = 1U;
+  }
+  reset();
+}
+
+bool TrackingYawPulseShaper::config_is_valid() const noexcept
+{
+  return std::isfinite(publish_rate_hz_) && publish_rate_hz_ > 0.0 &&
+         std::isfinite(minimum_yaw_rate_) && minimum_yaw_rate_ > 0.0 &&
+         std::isfinite(minimum_pulse_duration_sec_) &&
+         minimum_pulse_duration_sec_ > 0.0;
+}
+
+double TrackingYawPulseShaper::step(
+  const double desired_yaw_rate,
+  const bool correction_active) noexcept
+{
+  if (!config_is_valid() || !correction_active ||
+    !std::isfinite(desired_yaw_rate) ||
+    std::abs(desired_yaw_rate) <= 0.0)
+  {
+    reset();
+    return 0.0;
+  }
+
+  const double magnitude = std::abs(desired_yaw_rate);
+  if (magnitude >= minimum_yaw_rate_) {
+    reset();
+    return desired_yaw_rate;
+  }
+
+  const double direction = std::copysign(1.0, desired_yaw_rate);
+  if (direction != pulse_direction_) {
+    pulse_accumulator_ = 0.0;
+    remaining_pulse_ticks_ = 0U;
+    pulse_direction_ = direction;
+  }
+
+  pulse_accumulator_ += magnitude / minimum_yaw_rate_;
+  if (remaining_pulse_ticks_ > 0U) {
+    --remaining_pulse_ticks_;
+    return pulse_direction_ * minimum_yaw_rate_;
+  }
+
+  if (pulse_accumulator_ + 1.0e-12 >=
+    static_cast<double>(minimum_pulse_ticks_))
+  {
+    pulse_accumulator_ -= static_cast<double>(minimum_pulse_ticks_);
+    remaining_pulse_ticks_ = minimum_pulse_ticks_ - 1U;
+    return pulse_direction_ * minimum_yaw_rate_;
+  }
+  return 0.0;
+}
+
+void TrackingYawPulseShaper::reset() noexcept
+{
+  pulse_accumulator_ = 0.0;
+  pulse_direction_ = 0.0;
+  remaining_pulse_ticks_ = 0U;
+}
+
 PurePursuitController::PurePursuitController(const ControllerConfig & config)
 : config_(config)
 {
@@ -492,8 +574,7 @@ ControlOutput PurePursuitController::compute(
     }
     const double directed_raw_angular_velocity =
       turning_yaw_direction_ * std::abs(output.raw_angular_velocity);
-    const double minimum_yaw_rate = turning_motion_confirmed_ ?
-      config_.minimum_tracking_yaw_rate : config_.minimum_turning_yaw_rate;
+    const double minimum_yaw_rate = config_.minimum_turning_yaw_rate;
     output.angular_velocity = signed_floor(
       directed_raw_angular_velocity, minimum_yaw_rate);
     output.minimum_angular_applied = std::abs(output.raw_angular_velocity) <
